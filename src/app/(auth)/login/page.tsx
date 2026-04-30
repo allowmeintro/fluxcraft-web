@@ -83,17 +83,15 @@ export default function LoginPage() {
     }
   };
  
-  const handleDemoLogin = async () => {
-    // Устанавливаем куки для демо-режима (чтобы middleware пропускал к защищенным страницам)
-    document.cookie = "demoLoggedIn=true; path=/; max-age=86400"; // 24 часа
-    
-    toast.success("✅ Демо-вход выполнен!", {
-      description: "Добро пожаловать в FluxCraft. Вы в демо-режиме.",
-    });
+const handleDemoLogin = async () => {
+  await fetch("/api/demo-login", { method: "POST" });
+  
+  toast.success("✅ Демо-вход выполнен!", {
+    description: "Добро пожаловать в FluxCraft. Вы в демо-режиме.",
+  });
 
-    // Переходим в игру
-    window.location.href = "/game";
-  };
+  window.location.href = "/game";
+};
  
   return (
     <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-4">
