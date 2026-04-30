@@ -1,0 +1,32 @@
+services:
+  web:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=file:./dev.db
+      - NEXTAUTH_URL=http://localhost:3000
+      - AUTH_TRUST_HOST=true
+      - NEXTAUTH_SECRET=superlongdevsecret1234567890abcdef1234567890
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - REPLICATE_API_TOKEN=${REPLICATE_API_TOKEN}
+    volumes:
+      - ./prisma/dev.db:/app/prisma/dev.db
+      - ./.env:/app/.env
+    depends_on:
+      - db-init
+    restart: unless-stopped
+
+  # Простая инициализация базы (чтобы Prisma мог создать dev.db)
+  db-init:
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: sh -c "npm install -g prisma && npx prisma generate && npx prisma db push --accept-data-loss || true"
+    environment:
+      - DATABASE_URL=file:./dev.db
+
+volumes:
+  dev-db:

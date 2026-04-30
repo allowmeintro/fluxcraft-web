@@ -1,0 +1,121 @@
+generator client {
+  provider = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Genre {
+  FANTASY
+  SCI_FI
+  CYBERPUNK
+  POST_APOCALYPTIC
+  REALISTIC
+  PIXEL_ART
+  LOW_POLY
+}
+
+model User {
+  id           String    @id @default(cuid())
+  name         String?
+  email        String?   @unique
+  emailVerified DateTime?
+  image        String?
+
+  // Для Credentials-логина (пароль хранится только в виде хэша).
+  passwordHash String?
+
+  accounts     Account[]
+  sessions     Session[]
+
+  generations  Generation[]
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model Account {
+  id                 String  @id @default(cuid())
+  userId             String
+  type               String
+  provider           String
+  providerAccountId  String
+  refresh_token      String?
+  access_token       String?
+  expires_at         Int?
+  token_type         String?
+  scope              String?
+  id_token           String?
+  session_state      String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Generation {
+  id           String   @id @default(cuid())
+  userId       String
+
+  prompt       String
+  negativePrompt String?
+  genre        Genre
+
+  // Параметры генерации (timeOfDay/weather/detail/lighting и т.д.)
+  paramsJson   String
+  aspectRatio  String
+
+  model        String
+  seed         Int?
+
+  // Replicate prediction id (для трекинга прогресса/статуса)
+  predictionId String?
+
+  // Быстрый доступ к главному результату (дублирует GeneratedImage.url для удобства UI)
+  imageUrl     String?
+
+  images       GeneratedImage[]
+
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model GeneratedImage {
+  id            String   @id @default(cuid())
+  generationId  String
+
+  // URL результата (обычно CDN Replicate)
+  url           String
+  width         Int?
+  height        Int?
+
+  createdAt     DateTime @default(now())
+
+  generation Generation @relation(fields: [generationId], references: [id], onDelete: Cascade)
+
+  @@index([generationId, createdAt])
+}
+
