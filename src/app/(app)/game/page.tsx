@@ -1,11 +1,10 @@
-"use client";
-
-import dynamic from "next/dynamic";
-
-const GameShell = dynamic(() => import("./game-shell").then(mod => mod.GameShell), {
-  ssr: false,
-});
-
+import GameClient from "./game-client";
+ 
+export const metadata = {
+  title: "Игра — FluxCraft",
+};
+ 
 export default function GamePage() {
-  return <GameShell />;
+  return <GameClient />;
 }
+ 
