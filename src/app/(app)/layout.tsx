@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Gamepad2, LogOut, Sparkles } from "lucide-react";
+import { cookies } from "next/headers";
 
 import { auth, signOut } from "@/auth";
 import { Button } from "@/components/ui/button";
@@ -9,7 +10,8 @@ import { Badge } from "@/components/ui/badge";
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const session = await auth();
-  if (!session?.user) redirect("/login");
+  const isDemoLoggedIn = (await cookies()).get("demoLoggedIn")?.value === "true";
+  if (!session?.user && !isDemoLoggedIn) redirect("/login");
 
   return (
     <div className="min-h-screen bg-zinc-950 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-900 via-zinc-950 to-orange-950/20">
@@ -32,14 +34,9 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
                 Игра
               </Button>
             </Link>
-            <Link href="/dashboard">
-              <Button variant="ghost" className="text-zinc-300 hover:text-orange-400 hover:bg-orange-500/10">
-                Генератор
-              </Button>
-            </Link>
             <Link href="/gallery">
               <Button variant="ghost" className="text-zinc-300 hover:text-orange-400 hover:bg-orange-500/10">
-                Галерея
+                Биомы
               </Button>
             </Link>
             <Link href="/profile">
@@ -51,7 +48,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
 
           <div className="flex items-center gap-2">
             <Badge variant="secondary" className="bg-orange-500/20 text-orange-400 border-orange-500/30 hidden sm:inline-flex">
-              {session.user.email ?? "User"}
+              {session?.user?.email ?? "Demo"}
             </Badge>
             <form
               action={async () => {

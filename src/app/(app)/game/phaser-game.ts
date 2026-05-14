@@ -7,8 +7,12 @@ export const MAP_W = 64;
 export const MAP_H = 64;
 export const TILE_SIZE = 32;
 
-// Типы тайлов (базовые)
-export type TileId = "grass" | "water" | "rock" | "tree" | "ruins" | "empty";
+// Типы тайлов (базовые + новые объекты)
+export type TileId = 
+  | "grass" | "water" | "rock" | "tree" | "ruins" | "empty"
+  | "ice" | "mythic_grass" | "mythic_rock" | "crystal" | "snowball"
+  | "frozen_lake" | "quartz" | "board" | "glass" | "concrete"
+  | "plant" | "glowing_mushroom" | "ash" | "coral";
 
 // Биомные типы тайлов (для инвентаря с биомами)
 export type BiomeTileId = 
@@ -32,6 +36,9 @@ export type BiomeTileId =
   | "ruins_snow"
   | "ruins_magma"
   | "ruins_sand";
+
+// Тип времени суток
+export type TimeOfDay = "day" | "dusk" | "night" | "dawn";
 
 // Типы биомов для терраформирования
 export type BiomeType = "default" | "lava" | "desert" | "snow";
@@ -81,7 +88,7 @@ export interface PhaserGameInstance {
 function mulberry32(seed: number) {
   return function() {
     seed |= 0; seed = seed + 0x6D2B79F5 | 0;
-    var t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
     t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
     return ((t ^ t >>> 14) >>> 0) / 4294967296;
   }
@@ -131,6 +138,9 @@ class MainScene extends Phaser.Scene {
   private inventoryWithBiomes: InventoryWithBiomes = {};
   private callbacks: GameCallbacks | null = null;
   private keyboardEnabled: boolean = true; // флаг блокировки клавиатуры при фокусе на инпуте
+  private dayNightOverlay: Phaser.GameObjects.Rectangle | null = null;
+  private currentTimeOfDay: TimeOfDay = "day";
+  private timeOfDayTransitionTween: Phaser.Tweens.Tween | null = null;
 
   constructor() {
     super({ key: "MainScene" });
@@ -201,6 +211,12 @@ class MainScene extends Phaser.Scene {
     // Миникарта (упрощенная)
     this.createMinimap();
 
+    // Оверлей для дня/ночи — растягиваем на весь мир
+    this.dayNightOverlay = this.add.rectangle(
+      0, 0, MAP_W * TILE_SIZE, MAP_H * TILE_SIZE,
+      0x000033, 0
+    ).setOrigin(0, 0).setDepth(50);
+
 // Читаем колбэки сразу при старте сцены (до ready события)
     const earlyCallbacks = (window as any).__phaserCallbacks as GameCallbacks | undefined;
     if (earlyCallbacks) {
@@ -232,18 +248,19 @@ class MainScene extends Phaser.Scene {
       }
     });
 
-    // Слушатель события терраформирования от React-чата
-    window.addEventListener('ai-terraform', (event: any) => {
-      const promptText = event.detail.prompt;
-      console.log("Phaser получил команду на терраформирование:", promptText);
-      this.terraformMap(promptText);
-    });
 
-    // Слушатель точечных изменений карты (без полной перегенерации)
+    // Слушатель смены биома/карты от AI (ai-patch-map)
     window.addEventListener('ai-patch-map', (event: any) => {
-      const promptText = event.detail.prompt as string;
-      console.log("Phaser получил патч-команду:", promptText);
-      this.patchMap(promptText);
+      const { biome, prompt } = event.detail as { biome?: string; prompt?: string };
+      if (biome) {
+        // Новый режим: AI прислал biome — мгновенно закрашиваем ВСЮ карту
+        console.log("Phaser получил команду на смену биома:", biome);
+        this.applyBiome(biome);
+      } else if (prompt) {
+        // Старый режим (фолбэк): точечный патч по тексту
+        console.log("Phaser получил патч-команду (фолбэк):", prompt);
+        this.patchMap(prompt);
+      }
     });
 
     // Слушатель карты сгенерированной AI
@@ -262,6 +279,73 @@ class MainScene extends Phaser.Scene {
     window.addEventListener('ai-place-objects', (event: any) => {
       const { objects } = event.detail as { objects: Array<{dx: number; dy: number; tile: string}> };
       this.applyAiObjects(objects);
+    });
+
+    // Слушатель смены дня/ночи
+    window.addEventListener('ai-set-time', (event: any) => {
+      const { time } = event.detail as { time: TimeOfDay };
+      this.setTimeOfDay(time);
+    });
+
+    // Слушатель строительства зданий
+    window.addEventListener('ai-build-structure', (event: any) => {
+      const { structure, x, y, width, height } = event.detail;
+      this.buildStructure(structure || "постройка", x, y, width, height);
+    });
+
+    // Слушатель продвинутого терраформирования (гора, река, дорога и т.д.)
+    window.addEventListener('ai-terrain', (event: any) => {
+      const data = event.detail;
+      this.applyTerrain(data);
+    });
+
+    // Слушатель регионального изменения
+    window.addEventListener('ai-modify-region', (event: any) => {
+      const { x1, y1, x2, y2, tile_from, tile_to } = event.detail;
+      this.applyModifyRegion(x1, y1, x2, y2, tile_from, tile_to);
+    });
+
+    // Слушатель заполнения области
+    window.addEventListener('ai-fill-area', (event: any) => {
+      const { x1, y1, x2, y2, tile } = event.detail;
+      this.applyFillArea(x1, y1, x2, y2, tile);
+    });
+
+    // Слушатель нанесения узора
+    window.addEventListener('ai-pattern', (event: any) => {
+      const { type, tile_a, tile_b, x1, y1, x2, y2 } = event.detail;
+      this.applyPattern(type, tile_a || "G", tile_b || "R", x1, y1, x2, y2);
+    });
+
+    // Слушатель кастомного набора тайлов
+    window.addEventListener('ai-custom-tileset', (event: any) => {
+      const { tiles } = event.detail;
+      this.applyCustomTileset(tiles);
+    });
+
+    // Слушатель смешивания биомов
+    window.addEventListener('ai-biome-blend', (event: any) => {
+      const { primary, secondary, blend_radius, center_x, center_y } = event.detail;
+      this.applyBiomeBlend(primary, secondary, blend_radius, center_x, center_y);
+    });
+
+    // Автоматический цикл дня/ночи (каждые 60 секунд)
+    this.time.addEvent({
+      delay: 60000,
+      loop: true,
+      callback: () => {
+        const cycle = ["day", "dusk", "night", "dawn"] as TimeOfDay[];
+        const currentIdx = cycle.indexOf(this.currentTimeOfDay);
+        const nextIdx = (currentIdx + 1) % cycle.length;
+        this.setTimeOfDay(cycle[nextIdx]);
+        // Обновляем React
+        (window as any).__currentTime = cycle[nextIdx];
+      },
+    });
+
+    // Слушатель принудительного сброса клавиатуры (из React)
+    window.addEventListener('phaser-keyboard-reset', () => {
+      this.resetKeyboard();
     });
 
     // Публикуем позицию игрока для game-shell
@@ -395,6 +479,7 @@ class MainScene extends Phaser.Scene {
       }
     }
     this.handleTileInteractionContinuous();
+    this.updateSyncEffect();
   }
 
   private handleMovement() {
@@ -461,7 +546,9 @@ class MainScene extends Phaser.Scene {
     if (tx < 0 || tx >= MAP_W || ty < 0 || ty >= MAP_H) return true;
 
     const tile = this.tiles[ty][tx];
-    return tile === "water" || tile === "tree" || tile === "rock" || tile === "ruins";
+    return tile === "water" || tile === "tree" || tile === "rock" || tile === "ruins"
+      || tile === "frozen_lake" || tile === "mythic_rock" || tile === "quartz"
+      || tile === "glass" || tile === "concrete" || tile === "coral";
   }
 
   private handleTileInteraction(pointer: Phaser.Input.Pointer) {
@@ -486,7 +573,8 @@ class MainScene extends Phaser.Scene {
       // ЛКМ - сломать тайл
       // Игнорируем tint - проверяем только базовый тип тайла
       // Вода и пустые тайлы не ломаются
-      if (tile !== "empty" && tile !== "water") {
+      const notBreakable: TileId[] = ["empty", "water", "frozen_lake"];
+      if (!notBreakable.includes(tile)) {
         this.breakTileWithEffect(tx, ty, tile);
       }
     }
@@ -499,6 +587,7 @@ class MainScene extends Phaser.Scene {
   }
 
   // Обновление эффекта синхронизации (визуальный индикатор генерации)
+  // Called from update loop
   private updateSyncEffect() {
     if (this.isSyncing) {
       if (!this.playerSyncEffect) {
@@ -1212,7 +1301,7 @@ class MainScene extends Phaser.Scene {
 
     // Частицы для разрушения (разноцветные обломки)
     const debrisParticle = this.add.graphics();
-    debrisParticle.fillStyle(0x8B737355, 1);
+    debrisParticle.fillStyle(0x8B7373, 0.55);
     debrisParticle.fillRect(0, 0, 4, 4);
     debrisParticle.generateTexture("particle-debris", 4, 4);
     debrisParticle.destroy();
@@ -1348,6 +1437,211 @@ class MainScene extends Phaser.Scene {
         g.fillCircle(Math.random() * 28 + 2, Math.random() * 28 + 2, Math.random() * 4 + 2);
       }
     });
+
+    // ==========================================
+    // НОВЫЕ ОБЪЕКТЫ
+    // ==========================================
+
+    // ЛЁД — полупрозрачный голубой
+    makeTile("tile-ice", 0x99ddff, (g) => {
+      g.fillStyle(0xbbeeFF, 0.5);
+      g.fillRect(2, 2, 28, 28);
+      g.lineStyle(1, 0xffffff, 0.6);
+      g.lineBetween(4, 10, 28, 10);
+      g.lineBetween(4, 20, 28, 20);
+      g.fillStyle(0xffffff, 0.25);
+      g.fillTriangle(4, 4, 14, 4, 4, 14);
+      g.fillTriangle(18, 18, 28, 28, 18, 28);
+    });
+
+    // МИФИЧЕСКАЯ ТРАВА — розово-фиолетовая светящаяся
+    makeTile("tile-mythic-grass", 0x8833aa, (g) => {
+      g.fillStyle(0x9944bb, 0.7);
+      for (let i = 0; i < 10; i++) {
+        g.fillRect(Math.random()*26+2, Math.random()*26+2, 2, 5);
+      }
+      g.fillStyle(0xff66ff, 0.3);
+      for (let i = 0; i < 5; i++) {
+        g.fillCircle(Math.random()*28+2, Math.random()*28+2, 2.5);
+      }
+      g.fillStyle(0xffaaff, 0.15);
+      g.fillCircle(16, 16, 10);
+    });
+
+    // МИФИЧЕСКИЙ КАМЕНЬ — тёмно-фиолетовый с кристаллическими вкраплениями
+    makeTile("tile-mythic-rock", 0x3a1a55, (g) => {
+      g.fillStyle(0x4a2a66, 0.8);
+      for (let i = 0; i < 7; i++) {
+        g.fillCircle(Math.random()*24+4, Math.random()*24+4, Math.random()*3+2);
+      }
+      g.fillStyle(0xcc44ff, 0.6);
+      g.fillTriangle(8, 20, 14, 8, 20, 20);
+      g.fillStyle(0xaa22ee, 0.4);
+      g.fillTriangle(16, 22, 24, 12, 28, 22);
+      g.lineStyle(1, 0xff88ff, 0.5);
+      g.lineBetween(8, 20, 14, 8);
+      g.lineBetween(16, 22, 24, 12);
+    });
+
+    // СНЕЖНЫЙ КОМОК — белый шар
+    const snowball = this.add.graphics();
+    snowball.fillStyle(0xffffff, 1);
+    snowball.fillCircle(16, 18, 11);
+    snowball.fillStyle(0xddeeff, 0.5);
+    snowball.fillCircle(11, 14, 5);
+    snowball.lineStyle(1, 0xaaccee, 0.4);
+    snowball.strokeCircle(16, 18, 11);
+    snowball.generateTexture("tile-snowball", TILE_SIZE, TILE_SIZE);
+    snowball.destroy();
+
+    // ЗАМЁРЗШЕЕ ОЗЕРО — светло-голубой непрозрачный с трещинами
+    makeTile("tile-frozen-lake", 0x88ccff, (g) => {
+      g.fillStyle(0xaaddff, 0.4);
+      g.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
+      g.lineStyle(1, 0xffffff, 0.5);
+      g.lineBetween(4, 8, 16, 14);
+      g.lineBetween(16, 14, 28, 6);
+      g.lineBetween(8, 20, 20, 26);
+      g.fillStyle(0xffffff, 0.2);
+      g.fillEllipse(16, 16, 20, 10);
+    });
+
+    // КВАРЦ — белый с радужным отливом
+    const quartz = this.add.graphics();
+    quartz.fillStyle(0xfff0f8, 1);
+    quartz.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
+    quartz.fillStyle(0xffe0f0, 0.5);
+    quartz.fillTriangle(16, 2, 6, 18, 26, 18);
+    quartz.fillStyle(0xffffff, 0.8);
+    quartz.fillTriangle(16, 4, 10, 14, 22, 14);
+    quartz.fillStyle(0xffccee, 0.6);
+    quartz.fillTriangle(6, 18, 26, 18, 16, 30);
+    quartz.lineStyle(1, 0xffaadd, 0.8);
+    quartz.lineBetween(6, 18, 16, 2);
+    quartz.lineBetween(16, 2, 26, 18);
+    quartz.generateTexture("tile-quartz", TILE_SIZE, TILE_SIZE);
+    quartz.destroy();
+
+    // ДОСКА — деревянные планки
+    makeTile("tile-board", 0x8b5e3c, (g) => {
+      g.fillStyle(0xa06840, 1);
+      for (let i = 0; i < 4; i++) {
+        g.fillRect(0, i * 8, TILE_SIZE, 7);
+        g.lineStyle(1, 0x5a3820, 0.5);
+        g.lineBetween(0, i*8+7, TILE_SIZE, i*8+7);
+        // волокна
+        g.lineStyle(1, 0x7a4a28, 0.25);
+        g.lineBetween(Math.random()*30, i*8+1, Math.random()*30, i*8+6);
+      }
+    });
+
+    // СТЕКЛО — прозрачный с отражением
+    makeTile("tile-glass", 0xaaddff, (g) => {
+      g.fillStyle(0xcceeFF, 0.3);
+      g.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
+      g.fillStyle(0xffffff, 0.5);
+      g.fillTriangle(2, 2, 14, 2, 2, 14);
+      g.fillStyle(0xffffff, 0.2);
+      g.fillTriangle(18, 2, 30, 2, 30, 14);
+      g.lineStyle(1, 0x88bbee, 0.8);
+      g.strokeRect(1, 1, TILE_SIZE-2, TILE_SIZE-2);
+      g.lineStyle(1, 0xaaccff, 0.4);
+      g.lineBetween(0, 0, TILE_SIZE, TILE_SIZE);
+    });
+
+    // БЕТОН — серый однородный
+    makeTile("tile-concrete", 0x808080, (g) => {
+      g.fillStyle(0x909090, 0.4);
+      for (let i = 0; i < 5; i++) {
+        g.fillCircle(Math.random()*28+2, Math.random()*28+2, Math.random()*3+1);
+      }
+      g.lineStyle(1, 0x606060, 0.3);
+      g.lineBetween(0, 16, 32, 16);
+      g.lineBetween(16, 0, 16, 32);
+    });
+
+    // РАСТЕНИЕ — небольшой куст
+    const plant = this.add.graphics();
+    plant.fillStyle(0x0a6030, 1);
+    plant.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
+    plant.fillStyle(0x0d8040, 1);
+    plant.fillEllipse(16, 20, 24, 16);
+    plant.fillStyle(0x10a050, 0.8);
+    plant.fillEllipse(10, 14, 14, 12);
+    plant.fillEllipse(22, 14, 14, 12);
+    plant.fillStyle(0x18c060, 0.6);
+    plant.fillEllipse(16, 10, 12, 10);
+    plant.fillStyle(0x5d4037, 1);
+    plant.fillRect(14, 24, 4, 6);
+    plant.generateTexture("tile-plant", TILE_SIZE, TILE_SIZE);
+    plant.destroy();
+
+    // СВЕТЯЩИЙСЯ ГРИБ — голубой неоновый
+    const glowShroom = this.add.graphics();
+    glowShroom.fillStyle(0x051528, 1);
+    glowShroom.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
+    glowShroom.fillStyle(0x00aaff, 0.25);
+    glowShroom.fillCircle(16, 12, 13);
+    glowShroom.fillStyle(0x0066cc, 1);
+    glowShroom.fillEllipse(16, 10, 22, 14);
+    glowShroom.fillStyle(0x00aaff, 1);
+    glowShroom.fillEllipse(16, 8, 18, 10);
+    glowShroom.fillStyle(0xaaeeff, 0.7);
+    glowShroom.fillCircle(12, 7, 2); glowShroom.fillCircle(20, 9, 1.5); glowShroom.fillCircle(16, 5, 1);
+    glowShroom.fillStyle(0x55ccff, 1);
+    glowShroom.fillRect(13, 14, 6, 14);
+    glowShroom.fillStyle(0x00ffff, 0.15);
+    glowShroom.fillCircle(16, 20, 8);
+    glowShroom.generateTexture("tile-glow-mushroom", TILE_SIZE, TILE_SIZE);
+    glowShroom.destroy();
+
+    // ПЕПЕЛ — тёмно-серый
+    makeTile("tile-ash", 0x333333, (g) => {
+      g.fillStyle(0x444444, 0.5);
+      for (let i = 0; i < 15; i++) {
+        g.fillCircle(Math.random()*28+2, Math.random()*28+2, Math.random()*2+0.5);
+      }
+      g.fillStyle(0x888888, 0.2);
+      for (let i = 0; i < 5; i++) {
+        g.fillCircle(Math.random()*28+2, Math.random()*28+2, 1.5);
+      }
+    });
+
+    // КОРАЛЛ — оранжево-красный подводный
+    const coral = this.add.graphics();
+    coral.fillStyle(0x0a2a4a, 1);
+    coral.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
+    coral.fillStyle(0xff5500, 1);
+    coral.fillRect(14, 20, 4, 10);
+    coral.fillRect(8, 14, 4, 16);
+    coral.fillRect(20, 16, 4, 14);
+    coral.fillStyle(0xff7700, 0.8);
+    coral.fillCircle(16, 18, 4);
+    coral.fillCircle(10, 12, 4);
+    coral.fillCircle(22, 14, 4);
+    coral.fillStyle(0xffaa44, 0.5);
+    coral.fillCircle(16, 16, 2); coral.fillCircle(10, 10, 2); coral.fillCircle(22, 12, 2);
+    coral.generateTexture("tile-coral", TILE_SIZE, TILE_SIZE);
+    coral.destroy();
+
+    // МИФИЧЕСКОЕ ДЕРЕВО — фиолетово-розовое с кристаллами
+    const mythicTree = this.add.graphics();
+    mythicTree.fillStyle(0x220033, 1);
+    mythicTree.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
+    mythicTree.fillStyle(0x3d1a55, 0.5);
+    mythicTree.fillCircle(16, 28, 10);
+    mythicTree.fillStyle(0x5d3a1a, 1);
+    mythicTree.fillRect(13, 18, 6, 12);
+    mythicTree.fillStyle(0x6600aa, 1);
+    mythicTree.fillTriangle(16, 2, 3, 22, 29, 22);
+    mythicTree.fillStyle(0x9933cc, 1);
+    mythicTree.fillTriangle(16, 0, 7, 16, 25, 16);
+    mythicTree.fillStyle(0xff66ff, 0.4);
+    mythicTree.fillTriangle(16, 2, 10, 14, 22, 14);
+    mythicTree.fillStyle(0xffaaff, 0.6);
+    mythicTree.fillCircle(10, 10, 2); mythicTree.fillCircle(22, 8, 1.5); mythicTree.fillCircle(16, 4, 1);
+    mythicTree.generateTexture("tile-mythic-tree", TILE_SIZE, TILE_SIZE);
+    mythicTree.destroy();
   } // конец createTextures
 
   private renderTiles(force = false) {
@@ -1389,6 +1683,20 @@ class MainScene extends Phaser.Scene {
       case "rock": return "tile-rock";
       case "tree": return "tile-tree";
       case "ruins": return "tile-ruins";
+      case "ice": return "tile-ice";
+      case "mythic_grass": return "tile-mythic-grass";
+      case "mythic_rock": return "tile-mythic-rock";
+      case "crystal": return "tile-crystal";
+      case "snowball": return "tile-snowball";
+      case "frozen_lake": return "tile-frozen-lake";
+      case "quartz": return "tile-quartz";
+      case "board": return "tile-board";
+      case "glass": return "tile-glass";
+      case "concrete": return "tile-concrete";
+      case "plant": return "tile-plant";
+      case "glowing_mushroom": return "tile-glow-mushroom";
+      case "ash": return "tile-ash";
+      case "coral": return "tile-coral";
       default: return "tile-grass";
     }
   }
@@ -1559,8 +1867,13 @@ class MainScene extends Phaser.Scene {
 
     const tile = this.tiles[ty][tx];
 
-    // Ломаем только твердые объекты (дерево, камень, руины)
-    if (tile === "tree" || tile === "rock" || tile === "ruins") {
+    // Ломаем только твердые объекты (дерево, камень, руины и новые объекты)
+    const breakable: TileId[] = [
+      "tree", "rock", "ruins", "ice", "mythic_grass", "mythic_rock",
+      "crystal", "snowball", "quartz", "board", "glass", "concrete",
+      "plant", "glowing_mushroom", "ash", "coral"
+    ];
+    if (breakable.includes(tile)) {
       this.breakTileWithEffect(tx, ty, tile);
     }
   }
@@ -1702,6 +2015,21 @@ class MainScene extends Phaser.Scene {
       'rock_sand':   'Песчаный камень',
       'tree_sand':   'Кактус',
       'ruins_sand':  'Руины пустыни',
+      // Новые объекты
+      'ice':             '🧊 Лёд',
+      'mythic_grass':    '✨ Мифическая трава',
+      'mythic_rock':     '💜 Мифический камень',
+      'crystal':         '💎 Кристалл',
+      'snowball':        '⚪ Снежный комок',
+      'frozen_lake':     '🧊 Замёрзшее озеро',
+      'quartz':          '🔮 Кварц',
+      'board':           '🪵 Доска',
+      'glass':           '🪟 Стекло',
+      'concrete':        '🧱 Бетон',
+      'plant':           '🌿 Растение',
+      'glowing_mushroom':'💡 Светящийся гриб',
+      'ash':             '💨 Пепел',
+      'coral':           '🪸 Коралл',
     };
     return names[itemId] ?? itemId;
   }
@@ -1817,9 +2145,7 @@ class MainScene extends Phaser.Scene {
     }
 
     if (!fromDef || !toDef) {
-      // Не распознали — фолбэк на terraformMap
-      console.log("[patchMap] Не распознано, передаю в terraformMap:", t);
-      this.terraformMap(prompt);
+      console.log("[patchMap] Не распознано:", t);
       return;
     }
 
@@ -1919,7 +2245,7 @@ class MainScene extends Phaser.Scene {
         const idx = y * MAP_W + x;
         const tile = this.tiles[y][x];
         const sprite = this.tileSprites[idx];
-        if (!sprite) continue;
+        if (!sprite || !sprite.scene || !sprite.active) continue;
 
         if (newBiome === "lava") {
           this.applyLavaTile(x, y, tile, sprite, idx);
@@ -1996,6 +2322,113 @@ class MainScene extends Phaser.Scene {
     this.cameras.main.shake(300, 0.006);
     this.showFloatingText(this.player.x, this.player.y - 50, `🌍 ${this.getBiomeDisplayName(newBiome, { isSwamp, isJungle, isForest, isRuins })}`);
     console.log("Терраформирование завершено! Биом:", newBiome);
+  }
+
+  // === НОВЫЙ МЕТОД: Мгновенная смена биома по команде AI ===
+  // Закрашивает ВСЮ карту нужными тайлами в зависимости от биома
+  applyBiome(biomeType: string) {
+    const biomeMap: Record<string, BiomeType> = {
+      snow: "snow", winter: "snow", ice: "snow",
+      lava: "lava", volcanic: "lava", magma: "lava", fire: "lava",
+      desert: "desert", sand: "desert",
+      grass: "default", forest: "default", default: "default",
+    };
+
+    const newBiome = biomeMap[biomeType.toLowerCase()] ?? "default";
+    console.log("applyBiome:", biomeType, "→", newBiome);
+
+    // Сброс всех tint и данных
+    for (let y = 0; y < MAP_H; y++) {
+      for (let x = 0; x < MAP_W; x++) {
+        const idx = y * MAP_W + x;
+        if (this.tileSprites[idx]) {
+          this.tileSprites[idx].clearTint();
+          this.tileSprites[idx].setScale(1);
+          this.tileSprites[idx].setData('type', 'default');
+          this.tileSprites[idx].setData('biome', 'default');
+          this.tileSprites[idx].setData('itemKey', null);
+        }
+      }
+    }
+
+    this.currentBiome = newBiome;
+
+    // Применяем биом ко всей карте
+    for (let y = 0; y < MAP_H; y++) {
+      for (let x = 0; x < MAP_W; x++) {
+        const idx = y * MAP_W + x;
+        const tile = this.tiles[y][x];
+        const sprite = this.tileSprites[idx];
+        // Критическая проверка: спрайт может быть уничтожен (биомная смена уничтожает старые текстуры)
+        if (!sprite || !sprite.scene || !sprite.active) continue;
+
+        if (newBiome === "lava") {
+          this.applyLavaTile(x, y, tile, sprite, idx);
+        } else if (newBiome === "desert") {
+          this.applyDesertTile(x, y, tile, sprite, idx);
+        } else if (newBiome === "snow") {
+          this.applySnowTile(x, y, tile, sprite, idx);
+        } else {
+          // Default biome — просто возвращаем базовые текстуры
+          sprite.setTexture(this.tileTexture(tile));
+          sprite.clearTint();
+          sprite.setData('biome', 'default');
+          sprite.setData('type', 'default');
+        }
+      }
+    }
+
+    // === БЕЗОПАСНАЯ ЗОНА: расчищаем 3x3 вокруг игрока ===
+    this.clearSafeZone();
+
+    this.cameras.main.shake(400, 0.008);
+    this.showFloatingText(this.player.x, this.player.y - 60, `🌍 Биом: ${biomeType}`);
+    console.log("applyBiome завершено!");
+  }
+
+  // === БЕЗОПАСНАЯ ЗОНА ===
+  // Расчищает квадрат 3x3 вокруг игрока от коллизий и сбрасывает velocity
+  // Вызывается после ЛЮБОГО изменения карты
+  private clearSafeZone() {
+    const px = Math.floor(this.player.x / TILE_SIZE);
+    const py = Math.floor(this.player.y / TILE_SIZE);
+
+    // Расчищаем 3x3 вокруг игрока (заменяем непроходимые тайлы на траву)
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const tx = px + dx;
+        const ty = py + dy;
+        if (tx < 0 || tx >= MAP_W || ty < 0 || ty >= MAP_H) continue;
+
+        const tile = this.tiles[ty][tx];
+        // Если тайл непроходимый — заменяем на траву
+        if (tile === "water" || tile === "tree" || tile === "rock" || tile === "ruins"
+          || tile === "frozen_lake" || tile === "mythic_rock" || tile === "quartz"
+          || tile === "glass" || tile === "concrete" || tile === "coral") {
+
+          this.tiles[ty][tx] = "grass";
+          const idx = ty * MAP_W + tx;
+          const sprite = this.tileSprites[idx];
+          if (sprite) {
+            sprite.setTexture("tile-grass");
+            sprite.clearTint();
+            sprite.setAlpha(this.tileAlpha("grass"));
+            sprite.setScale(1);
+            sprite.setData('biome', 'default');
+            sprite.setData('type', 'default');
+            sprite.setData('itemKey', null);
+          }
+        }
+      }
+    }
+
+    // Сбрасываем velocity чтобы игрок не застревал
+    if (this.playerBody) {
+      this.playerBody.setVelocity(0, 0);
+    }
+
+    // Проверяем что игрок на проходимом тайле
+    this.repositionPlayerOnWalkable();
   }
 
   private getBiomeDisplayName(biome: BiomeType, flags: Record<string, boolean>): string {
@@ -2099,6 +2532,23 @@ class MainScene extends Phaser.Scene {
 
   // Применяет карту тайлов сгенерированную AI
   applyAiGeneratedMap(biome: string, mapRows: string[]) {
+    // === АБСОЛЮТНЫЙ ВАЙП (Hard Reset) карты ===
+    // КРИТИЧЕСКИ ВАЖНО: старые деревья, руины и льдины должны исчезать бесследно
+    for (let y = 0; y < MAP_H; y++) {
+      for (let x = 0; x < MAP_W; x++) {
+        const idx = y * MAP_W + x;
+        this.tiles[y][x] = "grass";
+        const sprite = this.tileSprites[idx];
+        if (sprite) {
+          sprite.clearTint();
+          sprite.setScale(1);
+          sprite.setData('type', 'default');
+          sprite.setData('biome', 'default');
+          sprite.setData('itemKey', null);
+        }
+      }
+    }
+
     const biomeMap: Record<string, BiomeType> = {
       snow: "snow", winter: "snow", ice: "snow", tundra: "snow",
       lava: "lava", volcanic: "lava", magma: "lava", fire: "lava",
@@ -2138,6 +2588,22 @@ class MainScene extends Phaser.Scene {
       // === ГРИБНОЙ/БОЛОТНЫЙ БИОМ ===
       "B": { tile: "grass",  texture: "tile-grass",     tint: 0x4a6b3a, biome: "default" }, // болото
       "H": { tile: "tree",   texture: "tile-tree",      tint: 0x7a3a8a, biome: "default" }, // мистический лес
+      // === НОВЫЕ ОБЪЕКТЫ ===
+      "i": { tile: "ice",           texture: "tile-ice",          biome: "snow"    },
+      "Y": { tile: "mythic_grass",  texture: "tile-mythic-grass", biome: "default" },
+      "y": { tile: "mythic_rock",   texture: "tile-mythic-rock",  biome: "default" },
+      "c": { tile: "crystal",       texture: "tile-crystal",      biome: "default" },
+      "z": { tile: "snowball",      texture: "tile-snowball",     biome: "snow"    },
+      "l": { tile: "frozen_lake",   texture: "tile-frozen-lake",  biome: "snow"    },
+      "q": { tile: "quartz",        texture: "tile-quartz",       biome: "default" },
+      "b": { tile: "board",         texture: "tile-board",        biome: "default" },
+      "a": { tile: "glass",         texture: "tile-glass",        biome: "default" },
+      "e": { tile: "concrete",      texture: "tile-concrete",     biome: "default" },
+      "p": { tile: "plant",         texture: "tile-plant",        biome: "default" },
+      "g": { tile: "glowing_mushroom", texture: "tile-glow-mushroom", biome: "default" },
+      "r": { tile: "ash",           texture: "tile-ash",          biome: "default" },
+      "o": { tile: "coral",         texture: "tile-coral",        biome: "default" },
+      "A": { tile: "mythic_grass",  texture: "tile-mythic-grass", tint: 0xff66ff, biome: "default" }, // мифич. биом фон
       // === АЛЬТЕРНАТИВНЫЕ ПСЕВДОНИМЫ (на случай если AI пишет цифры или другие буквы) ===
       "0": { tile: "grass",  texture: "tile-grass",     biome: "default" },
       "1": { tile: "rock",   texture: "tile-rock",      biome: "default" },
@@ -2288,18 +2754,35 @@ class MainScene extends Phaser.Scene {
       "D": { tile: "grass", texture: "tile-sand",      biome: "desert" },
       "N": { tile: "rock",  texture: "tile-rock",      tint: 0xccbb99, biome: "desert" },
       "K": { tile: "tree",  texture: "tile-cactus",    biome: "desert" },
-      "H": { tile: "rock",  texture: "tile-rock",      tint: 0x8b7355, biome: "default" },
-      "B": { tile: "grass", texture: "tile-grass",     tint: 0x888888, biome: "default" },
-      "Z": { tile: "ruins", texture: "tile-ruins",     tint: 0xddaa44, biome: "default" },
-      "O": { tile: "rock",  texture: "tile-rock",      tint: 0x8b4513, biome: "default" },
-      "X": { tile: "tree",  texture: "tile-tree",      tint: 0x228b22, biome: "default" },
-      "J": { tile: "tree",  texture: "tile-tree",      tint: 0xaa44aa, biome: "default" },
-      "Q": { tile: "ruins", texture: "tile-ruins",     tint: 0xccaa88, biome: "default" },
-      "Y": { tile: "rock",  texture: "tile-rock",      tint: 0x6699cc, biome: "default" },
-      "A": { tile: "rock",  texture: "tile-rock",      tint: 0xffdd88, biome: "default" },
+      // === ПРИРОДА РАСШИРЕННАЯ (без конфликтов с новыми объектами) ===
+      "f": { tile: "tree",  texture: "tile-tree",      tint: 0x006600, biome: "default" }, // тёмный лес
+      "h": { tile: "grass", texture: "tile-grass",     tint: 0xcc9933, biome: "default" }, // осенняя трава
+      "j": { tile: "ruins", texture: "tile-ruins",     tint: 0x55aa55, biome: "default" }, // заросшие руины
+      "k": { tile: "tree",  texture: "tile-pine-snow", biome: "snow"   },                  // ель
+      "m": { tile: "grass", texture: "tile-grass",     tint: 0xddff99, biome: "default" }, // цветочная поляна
+      "n": { tile: "rock",  texture: "tile-rock",      tint: 0xff9966, biome: "default" }, // кирпич
+      "s": { tile: "rock",  texture: "tile-volcanic",  tint: 0xff6600, biome: "lava"    }, // раскалённый камень
+      "t": { tile: "grass", texture: "tile-magma",     tint: 0xff2200, biome: "lava"    }, // лавовый поток
+      "u": { tile: "grass", texture: "tile-snow",      tint: 0xeeffff, biome: "snow"    }, // чистый снег
+      "v": { tile: "rock",  texture: "tile-rock",      tint: 0xaaddff, biome: "snow"    }, // ледяная глыба
+      "w": { tile: "water", texture: "tile-water",     tint: 0x88ccff, biome: "snow"    }, // замёрзшее озеро
+      "x": { tile: "ruins", texture: "tile-ruins",     tint: 0xffcc00, biome: "default" }, // золото/сокровище
+      // === НОВЫЕ ОБЪЕКТЫ ===
+      "i": { tile: "ice",            texture: "tile-ice",           biome: "snow"    },
+      "c": { tile: "crystal",        texture: "tile-crystal",       biome: "default" },
+      "y": { tile: "mythic_rock",    texture: "tile-mythic-rock",   biome: "default" },
+      "z": { tile: "snowball",       texture: "tile-snowball",      biome: "snow"    },
+      "l": { tile: "frozen_lake",    texture: "tile-frozen-lake",   biome: "snow"    },
+      "q": { tile: "quartz",         texture: "tile-quartz",        biome: "default" },
+      "b": { tile: "board",          texture: "tile-board",         biome: "default" },
+      "a": { tile: "glass",          texture: "tile-glass",         biome: "default" },
+      "e": { tile: "concrete",       texture: "tile-concrete",      biome: "default" },
+      "p": { tile: "plant",          texture: "tile-plant",         biome: "default" },
+      "g": { tile: "glowing_mushroom", texture: "tile-glow-mushroom", biome: "default" },
+      "r": { tile: "ash",            texture: "tile-ash",           biome: "default" },
+      "o": { tile: "coral",          texture: "tile-coral",         biome: "default" },
       // === ГОРОД / ЦИВИЛИЗАЦИЯ ===
       "1": { tile: "rock",  texture: "tile-rock",      tint: 0x8b7355, biome: "default" }, // дом/здание
-      "2": { tile: "grass", texture: "tile-grass",     tint: 0x777777, biome: "default" }, // дорога/асфальт
       "3": { tile: "rock",  texture: "tile-rock",      tint: 0xdddddd, biome: "default" }, // стена/забор
       "4": { tile: "ruins", texture: "tile-ruins",     tint: 0xff8800, biome: "default" }, // огонь/костёр
       "5": { tile: "rock",  texture: "tile-rock",      tint: 0x4444ff, biome: "default" }, // вода в колодце/фонтан
@@ -2308,29 +2791,6 @@ class MainScene extends Phaser.Scene {
       "8": { tile: "tree",  texture: "tile-tree",      tint: 0xffbb00, biome: "default" }, // золотое дерево/осень
       "9": { tile: "grass", texture: "tile-grass",     tint: 0x5599ff, biome: "default" }, // вода/ручей
       "0": { tile: "rock",  texture: "tile-rock",      tint: 0x222222, biome: "default" }, // тёмный камень/уголь
-      // === ПРИРОДА РАСШИРЕННАЯ ===
-      "e": { tile: "grass", texture: "tile-grass",     tint: 0x33bb33, biome: "default" }, // густая трава
-      "f": { tile: "tree",  texture: "tile-tree",      tint: 0x006600, biome: "default" }, // тёмный лес
-      "g": { tile: "tree",  texture: "tile-tree",      tint: 0x99cc44, biome: "default" }, // берёза/светлое дерево
-      "h": { tile: "grass", texture: "tile-grass",     tint: 0xcc9933, biome: "default" }, // осенняя трава
-      "i": { tile: "rock",  texture: "tile-rock",      tint: 0xbb9977, biome: "default" }, // коричневый камень
-      "j": { tile: "ruins", texture: "tile-ruins",     tint: 0x55aa55, biome: "default" }, // заросшие руины
-      "k": { tile: "tree",  texture: "tile-pine-snow", biome: "snow"   },                  // ель
-      "l": { tile: "water", texture: "tile-water",     tint: 0x00bbff, biome: "default" }, // чистое озеро
-      "m": { tile: "grass", texture: "tile-grass",     tint: 0xddff99, biome: "default" }, // цветочная поляна
-      "n": { tile: "rock",  texture: "tile-rock",      tint: 0xff9966, biome: "default" }, // кирпич
-      "o": { tile: "ruins", texture: "tile-ruins",     tint: 0x9966ff, biome: "default" }, // магический артефакт
-      "p": { tile: "grass", texture: "tile-grass",     tint: 0xffaaaa, biome: "default" }, // цветы/сакура
-      "q": { tile: "tree",  texture: "tile-cactus",    tint: 0x88dd44, biome: "desert"  }, // пальма
-      "r": { tile: "grass", texture: "tile-sand",      tint: 0xffeecc, biome: "desert"  }, // светлый песок
-      "s": { tile: "rock",  texture: "tile-volcanic",  tint: 0xff6600, biome: "lava"    }, // раскалённый камень
-      "t": { tile: "grass", texture: "tile-magma",     tint: 0xff2200, biome: "lava"    }, // лавовый поток
-      "u": { tile: "grass", texture: "tile-snow",      tint: 0xeeffff, biome: "snow"    }, // чистый снег
-      "v": { tile: "rock",  texture: "tile-rock",      tint: 0xaaddff, biome: "snow"    }, // ледяная глыба
-      "w": { tile: "water", texture: "tile-water",     tint: 0x88ccff, biome: "snow"    }, // замёрзшее озеро
-      "x": { tile: "ruins", texture: "tile-ruins",     tint: 0xffcc00, biome: "default" }, // золото/сокровище
-      "y": { tile: "tree",  texture: "tile-tree",      tint: 0xcc44cc, biome: "default" }, // мистическое дерево
-      "z": { tile: "grass", texture: "tile-grass",     tint: 0x222244, biome: "default" }, // тёмная земля/пепел
     };
 
     // Словарь русских названий объектов для AI → символ
@@ -2341,10 +2801,18 @@ class MainScene extends Phaser.Scene {
       могила: "6", надгробие: "6", клён: "7", осина: "8",
       ручей: "9", уголь: "0", берёза: "g", ель: "k", пальма: "q",
       цветы: "p", сакура: "p", поляна: "m", артефакт: "o", золото: "x",
-      сокровище: "x", лёд: "v", лава: "t", пепел: "z", гриб: "J",
+      сокровище: "x", лёд: "i", лава: "t", пепел: "r", гриб: "J",
       палатка: "Q", бочка: "O", сундук: "Z", куст: "X",
       трава: "G", камень: "R", дерево: "T", вода: "W", руины: "U",
       снег: "S", кактус: "K", магма: "M", песок: "D",
+      // Новые объекты
+      "мифическая трава": "Y", "мифтрава": "Y",
+      "мифический камень": "y", "мифкамень": "y",
+      кристалл: "c", "снежный комок": "z", снежком: "z",
+      "замёрзшее озеро": "l", "замерзшее озеро": "l",
+      кварц: "q", доска: "b", стекло: "a", бетон: "e",
+      растение: "p", "светящийся гриб": "g", коралл: "o",
+      "мифическое дерево": "A", "мифдерево": "A",
     };
 
     const px = Math.floor(this.player.x / TILE_SIZE);
@@ -2373,41 +2841,509 @@ class MainScene extends Phaser.Scene {
     this.showFloatingText(this.player.x, this.player.y - 50, "📦 Объекты размещены!");
   }
 
-  private repositionPlayerOnWalkable() {
-    if (!this.player || !this.playerBody) return;
+  // Установка времени суток (день/ночь)
+  public setTimeOfDay(time: TimeOfDay) {
+    this.currentTimeOfDay = time;
+    if (!this.dayNightOverlay) return;
 
+    if (this.timeOfDayTransitionTween) {
+      this.timeOfDayTransitionTween.stop();
+    }
+
+    const configs: Record<TimeOfDay, { color: number; alpha: number; label: string }> = {
+      day:   { color: 0xffffff, alpha: 0,    label: "☀️ День" },
+      dusk:  { color: 0xff8800, alpha: 0.30, label: "🌅 Закат" },
+      night: { color: 0x000033, alpha: 0.72, label: "🌙 Ночь" },
+      dawn:  { color: 0xff6644, alpha: 0.22, label: "🌄 Рассвет" },
+    };
+
+    const cfg = configs[time];
+    this.dayNightOverlay.setFillStyle(cfg.color);
+
+    this.timeOfDayTransitionTween = this.tweens.add({
+      targets: this.dayNightOverlay,
+      alpha: cfg.alpha,
+      duration: 2000,
+      ease: "Sine.easeInOut",
+      onComplete: () => {
+        this.showFloatingText(this.player.x, this.player.y - 60, cfg.label);
+      },
+    });
+  }
+
+  // Строительство структуры (замок, башня, дом и т.д.)
+  public buildStructure(type: string, startX: number, startY: number, width: number, height: number) {
+    const t = type.toLowerCase();
+
+    type StructureDef = { tile: TileId; texture: string; tint?: number };
+
+    const wallTile: StructureDef = t.includes("стекл") ? { tile: "glass",    texture: "tile-glass"    }
+      : t.includes("бетон")  ? { tile: "concrete", texture: "tile-concrete" }
+      : t.includes("лёд")    ? { tile: "ice",      texture: "tile-ice"      }
+      : t.includes("мифич")  ? { tile: "mythic_rock", texture: "tile-mythic-rock" }
+      :                         { tile: "rock",     texture: "tile-rock"     };
+
+    const floorTile: StructureDef = t.includes("бетон") ? { tile: "concrete", texture: "tile-concrete" }
+      : t.includes("доск")   ? { tile: "board",    texture: "tile-board"    }
+      :                         { tile: "grass",    texture: "tile-grass"    };
+
+    for (let dy = 0; dy < height; dy++) {
+      for (let dx = 0; dx < width; dx++) {
+        const tx = startX + dx;
+        const ty = startY + dy;
+        if (tx < 0 || tx >= MAP_W || ty < 0 || ty >= MAP_H) continue;
+
+        const isWall = dy === 0 || dy === height - 1 || dx === 0 || dx === width - 1;
+        const def: StructureDef = isWall ? wallTile : floorTile;
+
+        const idx = ty * MAP_W + tx;
+        const sprite = this.tileSprites[idx];
+        if (!sprite) continue;
+
+        this.tiles[ty][tx] = def.tile;
+        sprite.setTexture(def.texture);
+        sprite.setAlpha(this.tileAlpha(def.tile));
+        sprite.setScale(1);
+        if (def.tint !== undefined) sprite.setTint(def.tint);
+        else sprite.clearTint();
+        sprite.setData("biome", "default");
+      }
+    }
+
+    if (t.includes("замок") || t.includes("castle")) {
+      const corners = [
+        [startX, startY], [startX + width - 1, startY],
+        [startX, startY + height - 1], [startX + width - 1, startY + height - 1]
+      ];
+      for (const [cx, cy] of corners) {
+        if (cx >= 0 && cx < MAP_W && cy >= 0 && cy < MAP_H) {
+          const cidx = cy * MAP_W + cx;
+          this.tiles[cy][cx] = "ruins";
+          this.tileSprites[cidx]?.setTexture("tile-ruins");
+          this.tileSprites[cidx]?.clearTint();
+        }
+      }
+    }
+
+    this.repositionPlayerOnWalkable();
+    this.cameras.main.shake(200, 0.005);
+    this.showFloatingText(
+      (startX + Math.floor(width / 2)) * TILE_SIZE,
+      (startY - 1) * TILE_SIZE,
+      `🏗️ Построено!`
+    );
+  }
+
+  private repositionPlayerOnWalkable() {
     const px = Math.floor(this.player.x / TILE_SIZE);
     const py = Math.floor(this.player.y / TILE_SIZE);
 
-    // Сначала проверяем текущую позицию
-    if (this.isWalkable(px, py)) return;
-
-    // Ищем ближайший проходимый тайл спиралью от текущей позиции
-    for (let radius = 1; radius < 20; radius++) {
-      for (let dy = -radius; dy <= radius; dy++) {
-        for (let dx = -radius; dx <= radius; dx++) {
-          if (Math.abs(dx) !== radius && Math.abs(dy) !== radius) continue;
-          const nx = px + dx;
-          const ny = py + dy;
-          if (nx >= 0 && nx < MAP_W && ny >= 0 && ny < MAP_H && this.isWalkable(nx, ny)) {
-            const wx = nx * TILE_SIZE + TILE_SIZE / 2;
-            const wy = ny * TILE_SIZE + TILE_SIZE / 2;
-            this.playerBody.reset(wx, wy);
-            this.player.setPosition(wx, wy);
-            this.playerGlow.setPosition(wx, wy);
-            return;
+    // ЖЕСТКАЯ ЗАЧИСТКА: Пройдись в радиусе 3х3 вокруг игрока
+    // Если тайл непроходимый — принудительно ставим траву
+    for (let dy = -3; dy <= 3; dy++) {
+      for (let dx = -3; dx <= 3; dx++) {
+        const nx = px + dx;
+        const ny = py + dy;
+        if (nx < 0 || nx >= MAP_W || ny < 0 || ny >= MAP_H) continue;
+        
+        if (!this.isWalkable(nx, ny)) {
+          // Принудительно ставим базовый пол (траву)
+          this.tiles[ny][nx] = "grass";
+          const idx = ny * MAP_W + nx;
+          const sprite = this.tileSprites[idx];
+          if (sprite) {
+            sprite.setTexture("tile-grass");
+            sprite.clearTint();
+            sprite.setAlpha(this.tileAlpha("grass"));
+            sprite.setScale(1);
+            sprite.setData('biome', 'default');
+            sprite.setData('type', 'default');
+            sprite.setData('itemKey', null);
           }
         }
       }
+    }
+
+    // ИДЕАЛЬНЫЙ СБРОС ФИЗИКИ
+    const wx = px * TILE_SIZE + TILE_SIZE / 2;
+    const wy = py * TILE_SIZE + TILE_SIZE / 2;
+    
+    // Останавливаем физику
+    if (this.playerBody) {
+      this.playerBody.stop();
+      this.playerBody.setVelocity(0, 0);
+      this.playerBody.reset(wx, wy);
+    }
+    
+    // Перемещаем игрока в центр расчищенного тайла
+    this.player.setPosition(wx, wy);
+    this.playerGlow.setPosition(wx, wy);
+
+    // ПЕРЕЗАГРУЗКА ВВОДА (Критично!): Чтобы WASD снова работал после ввода текста
+    if (this.input.keyboard) {
+      this.input.keyboard.enabled = true;
+      this.input.keyboard.enableGlobalCapture();
+      this.input.keyboard.resetKeys();
+    }
+  }
+  
+  // Принудительный сброс клавиш извне (из React)
+  public resetKeyboard() {
+    if (this.input.keyboard) {
+      this.input.keyboard.enabled = true;
+      this.input.keyboard.enableGlobalCapture();
+      this.input.keyboard.resetKeys();
     }
   }
 
   private isWalkable(tx: number, ty: number): boolean {
     if (tx < 0 || tx >= MAP_W || ty < 0 || ty >= MAP_H) return false;
     const tile = this.tiles[ty][tx];
-    return tile === "grass";
+    return tile === "grass" || tile === "mythic_grass" || tile === "ice"
+      || tile === "snowball" || tile === "ash" || tile === "board";
   }
 
+  // ================================================================
+  // НОВЫЕ МЕТОДЫ ДЛЯ УЛУЧШЕННОЙ ОБРАБОТКИ КОМАНД AI
+  // ================================================================
+
+  // Продвинутое терраформирование (гора, река, дорога, озеро и т.д.)
+  public applyTerrain(data: any) {
+    const shape = data.shape || "mountain";
+    const biome = data.biome || this.currentBiome;
+    const cx = data.center_x !== undefined ? data.center_x : Math.floor(this.player.x / TILE_SIZE);
+    const cy = data.center_y !== undefined ? data.center_y : Math.floor(this.player.y / TILE_SIZE);
+    const radius = data.radius || 10;
+    const rng = () => Math.random();
+
+    switch (shape) {
+      case "mountain": {
+        // Создаём возвышенность из камней
+        for (let dy = -radius; dy <= radius; dy++) {
+          for (let dx = -radius; dx <= radius; dx++) {
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist > radius) continue;
+            const tx = cx + dx;
+            const ty = cy + dy;
+            if (tx < 0 || tx >= MAP_W || ty < 0 || ty >= MAP_H) continue;
+            // Чем ближе к центру, тем выше вероятность камня
+            const chance = 1 - (dist / radius);
+            if (rng() < chance * 0.9) {
+              this.tiles[ty][tx] = "rock";
+              this.updateTileSprite(tx, ty, "rock", biome);
+            } else if (rng() < 0.5) {
+              this.tiles[ty][tx] = "tree";
+              this.updateTileSprite(tx, ty, "tree", biome);
+            }
+          }
+        }
+        this.showFloatingText(cx * TILE_SIZE, cy * TILE_SIZE - 32, "⛰️ Гора создана!");
+        break;
+      }
+      case "river": {
+        // Создаём извилистую реку
+        const riverLen = radius * 3;
+        let rx = cx, ry = cy;
+        let dirX = rng() > 0.5 ? 1 : -1;
+        let dirY = rng() > 0.5 ? 1 : -1;
+        for (let i = 0; i < riverLen; i++) {
+          if (rx >= 0 && rx < MAP_W && ry >= 0 && ry < MAP_H) {
+            this.tiles[ry][rx] = "water";
+            this.updateTileSprite(rx, ry, "water", biome);
+            // Делаем русло шире
+            if (rng() > 0.7) {
+              const wx = rx + (rng() > 0.5 ? 1 : -1);
+              const wy = ry + (rng() > 0.5 ? 0 : 1);
+              if (wx >= 0 && wx < MAP_W && wy >= 0 && wy < MAP_H) {
+                this.tiles[wy][wx] = "water";
+                this.updateTileSprite(wx, wy, "water", biome);
+              }
+            }
+          }
+          // Меняем направление случайным образом
+          if (rng() > 0.75) { dirX = rng() > 0.5 ? 1 : -1; }
+          if (rng() > 0.75) { dirY = rng() > 0.5 ? 1 : -1; }
+          rx += dirX;
+          ry += dirY;
+          // Не даём выйти за границы
+          rx = Math.max(1, Math.min(MAP_W - 2, rx));
+          ry = Math.max(1, Math.min(MAP_H - 2, ry));
+        }
+        this.showFloatingText(cx * TILE_SIZE, cy * TILE_SIZE - 32, "🌊 Река создана!");
+        break;
+      }
+      case "lake": {
+        for (let dy = -radius; dy <= radius; dy++) {
+          for (let dx = -radius; dx <= radius; dx++) {
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const noise = rng() * 2;
+            if (dist + noise <= radius) {
+              const tx = cx + dx;
+              const ty = cy + dy;
+              if (tx >= 1 && tx < MAP_W - 1 && ty >= 1 && ty < MAP_H - 1) {
+                this.tiles[ty][tx] = "water";
+                this.updateTileSprite(tx, ty, "water", biome);
+              }
+            }
+          }
+        }
+        this.showFloatingText(cx * TILE_SIZE, cy * TILE_SIZE - 32, "🏖️ Озеро создано!");
+        break;
+      }
+      case "road": {
+        // Прокладываем дорогу по горизонтали
+        for (let x = Math.max(0, cx - radius * 2); x <= Math.min(MAP_W - 1, cx + radius * 2); x++) {
+          if (this.tiles[cy][x] !== "water") {
+            this.tiles[cy][x] = "grass";
+            this.updateTileSprite(x, cy, "grass", biome);
+          }
+          // Дорожные столбы
+          if (Math.abs(x - cx) % 3 === 0 && rng() > 0.5) {
+            const px = x;
+            const py = cy - 1;
+            if (py >= 0 && py < MAP_H && this.tiles[py][px] !== "water") {
+              this.tiles[py][px] = "rock";
+              this.updateTileSprite(px, py, "rock", biome);
+            }
+          }
+        }
+        this.showFloatingText(cx * TILE_SIZE, cy * TILE_SIZE - 32, "🛣️ Дорога проложена!");
+        break;
+      }
+      case "valley": {
+        // Долина — углубление с травой и цветами
+        for (let dy = -radius; dy <= radius; dy++) {
+          for (let dx = -radius; dx <= radius; dx++) {
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist <= radius) {
+              const tx = cx + dx;
+              const ty = cy + dy;
+              if (tx >= 0 && tx < MAP_W && ty >= 0 && ty < MAP_H) {
+                this.tiles[ty][tx] = "grass";
+                this.updateTileSprite(tx, ty, "grass", biome);
+                // Добавляем цветы/растения
+                if (rng() > 0.85 && dist > radius * 0.3) {
+                  this.tiles[ty][tx] = "plant";
+                  this.updateTileSprite(tx, ty, "plant", biome);
+                }
+              }
+            }
+          }
+        }
+        this.showFloatingText(cx * TILE_SIZE, cy * TILE_SIZE - 32, "🏞️ Долина создана!");
+        break;
+      }
+      default: {
+        // Холм/по умолчанию — мягкое возвышение
+        for (let dy = -radius; dy <= radius; dy++) {
+          for (let dx = -radius; dx <= radius; dx++) {
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist <= radius) {
+              const tx = cx + dx;
+              const ty = cy + dy;
+              if (tx >= 0 && tx < MAP_W && ty >= 0 && ty < MAP_H) {
+                const chance = 1 - (dist / radius);
+                if (chance > 0.5 && this.tiles[ty][tx] !== "water") {
+                  this.tiles[ty][tx] = "rock";
+                  this.updateTileSprite(tx, ty, "rock", biome);
+                }
+              }
+            }
+          }
+        }
+        this.showFloatingText(cx * TILE_SIZE, cy * TILE_SIZE - 32, `🏔️ ${shape} создан!`);
+        break;
+      }
+    }
+
+    this.repositionPlayerOnWalkable();
+    this.cameras.main.shake(300, 0.005);
+  }
+
+  // Региональное изменение (прямоугольник)
+  public applyModifyRegion(x1: number, y1: number, x2: number, y2: number, tile_from?: string, tile_to?: string) {
+    const charMap: Record<string, string> = {
+      "G": "grass", "W": "water", "R": "rock", "T": "tree", "U": "ruins",
+      "S": "snow", "D": "sand", "M": "magma", "P": "pine", "K": "cactus",
+      "i": "ice", "c": "crystal", "y": "mythic_rock", "o": "coral",
+      "l": "frozen_lake", "q": "quartz", "b": "board", "a": "glass",
+      "e": "concrete", "p": "plant", "g": "glowing_mushroom", "r": "ash", "z": "snowball",
+    };
+
+    const minX = Math.max(0, Math.min(x1, x2));
+    const maxX = Math.min(MAP_W - 1, Math.max(x1, x2));
+    const minY = Math.max(0, Math.min(y1, y2));
+    const maxY = Math.min(MAP_H - 1, Math.max(y1, y2));
+    const fromTile = tile_from ? charMap[tile_from] || "grass" : null;
+    const toTile = tile_to ? charMap[tile_to] || "grass" : "grass";
+
+    let count = 0;
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
+        if (fromTile === null || this.tiles[y][x] === fromTile) {
+          this.tiles[y][x] = toTile as TileId;
+          this.updateTileSprite(x, y, toTile, this.currentBiome);
+          count++;
+        }
+      }
+    }
+    this.showFloatingText(
+      ((minX + maxX) / 2) * TILE_SIZE,
+      minY * TILE_SIZE - 20,
+      `📐 Изменено: ${count} тайлов`
+    );
+    this.repositionPlayerOnWalkable();
+  }
+
+  // Заполнение области одним типом
+  public applyFillArea(x1: number, y1: number, x2: number, y2: number, tile: string) {
+    this.applyModifyRegion(x1, y1, x2, y2, undefined, tile);
+  }
+
+  // Нанесение узора
+  public applyPattern(type: string, tileA: string, tileB: string, x1?: number, y1?: number, x2?: number, y2?: number) {
+    const charMap: Record<string, string> = {
+      "G": "grass", "W": "water", "R": "rock", "T": "tree", "U": "ruins",
+      "S": "snow", "D": "sand", "M": "magma", "P": "pine", "K": "cactus",
+      "i": "ice", "c": "crystal", "y": "mythic_rock", "o": "coral",
+      "l": "frozen_lake", "q": "quartz", "b": "board", "a": "glass",
+      "e": "concrete", "p": "plant", "g": "glowing_mushroom", "r": "ash", "z": "snowball",
+      "Y": "mythic_grass",
+    };
+
+    const tileAType = charMap[tileA] || "grass";
+    const tileBType = charMap[tileB] || "rock";
+    const minX = Math.max(0, x1 ?? 0);
+    const maxX = Math.min(MAP_W - 1, x2 ?? MAP_W - 1);
+    const minY = Math.max(0, y1 ?? 0);
+    const maxY = Math.min(MAP_H - 1, y2 ?? MAP_H - 1);
+
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
+        let useA = false;
+        switch (type) {
+          case "checkerboard":
+            useA = (x + y) % 2 === 0;
+            break;
+          case "stripes":
+            useA = x % 2 === 0;
+            break;
+          case "rings": {
+            const dist = Math.sqrt((x - (minX + maxX) / 2) ** 2 + (y - (minY + maxY) / 2) ** 2);
+            useA = Math.floor(dist) % 2 === 0;
+            break;
+          }
+          case "spiral": {
+            const dx = x - (minX + maxX) / 2;
+            const dy = y - (minY + maxY) / 2;
+            const angle = Math.atan2(dy, dx);
+            useA = Math.floor((angle / (Math.PI * 2)) * 10) % 2 === 0;
+            break;
+          }
+          case "gradient": {
+            const progress = (x - minX) / (maxX - minX || 1);
+            useA = progress < 0.5;
+            break;
+          }
+          default:
+            useA = true;
+        }
+        const selectedTile = useA ? tileAType : tileBType;
+        this.tiles[y][x] = selectedTile as TileId;
+        this.updateTileSprite(x, y, selectedTile, this.currentBiome);
+      }
+    }
+    this.repositionPlayerOnWalkable();
+    this.cameras.main.shake(200, 0.004);
+    this.showFloatingText(
+      ((minX + maxX) / 2) * TILE_SIZE,
+      minY * TILE_SIZE - 20,
+      `🎨 Узор "${type}" нанесён!`
+    );
+  }
+
+  // Кастомный набор тайлов (массив {x, y, tile})
+  public applyCustomTileset(tiles: Array<{x: number; y: number; tile: string}>) {
+    const charMap: Record<string, string> = {
+      "G": "grass", "W": "water", "R": "rock", "T": "tree", "U": "ruins",
+      "S": "snow", "D": "sand", "M": "magma", "P": "pine", "K": "cactus",
+      "i": "ice", "c": "crystal", "y": "mythic_rock", "o": "coral",
+      "l": "frozen_lake", "q": "quartz", "b": "board", "a": "glass",
+      "e": "concrete", "p": "plant", "g": "glowing_mushroom", "r": "ash", "z": "snowball",
+      "Y": "mythic_grass",
+    };
+
+    let count = 0;
+    for (const tileData of tiles) {
+      const { x, y, tile: tileChar } = tileData;
+      if (x < 0 || x >= MAP_W || y < 0 || y >= MAP_H) continue;
+      const tileName = charMap[tileChar] || "grass";
+      this.tiles[y][x] = tileName as TileId;
+      this.updateTileSprite(x, y, tileName, this.currentBiome);
+      count++;
+    }
+    this.showFloatingText(this.player.x, this.player.y - 40, `🎯 Размещено: ${count} объектов`);
+    this.repositionPlayerOnWalkable();
+  }
+
+  // Смешивание биомов
+  public applyBiomeBlend(primary: string, secondary: string, blendRadius?: number, centerX?: number, centerY?: number) {
+    const biomeMap: Record<string, BiomeType> = {
+      snow: "snow", lava: "lava", desert: "desert",
+      forest: "default", default: "default", swamp: "default",
+    };
+    const primaryBiome = biomeMap[primary] || "default";
+    const secondaryBiome = biomeMap[secondary] || "default";
+    const radius = blendRadius || 15;
+    const cx = centerX !== undefined ? centerX : Math.floor(MAP_W / 2);
+    const cy = centerY !== undefined ? centerY : Math.floor(MAP_H / 2);
+
+    for (let y = 0; y < MAP_H; y++) {
+      for (let x = 0; x < MAP_W; x++) {
+        const dist = Math.sqrt((x - cx) ** 2 + (y - cy) ** 2);
+        const blendFactor = Math.max(0, Math.min(1, dist / radius));
+        const targetBiome = blendFactor < 0.5 ? primaryBiome : secondaryBiome;
+
+        if (targetBiome !== this.currentBiome) {
+          const tile = this.tiles[y][x];
+          if (targetBiome === "lava") this.applyLavaTile(x, y, tile, this.tileSprites[y * MAP_W + x]!, y * MAP_W + x);
+          else if (targetBiome === "desert") this.applyDesertTile(x, y, tile, this.tileSprites[y * MAP_W + x]!, y * MAP_W + x);
+          else if (targetBiome === "snow") this.applySnowTile(x, y, tile, this.tileSprites[y * MAP_W + x]!, y * MAP_W + x);
+        }
+      }
+    }
+    this.currentBiome = primaryBiome;
+    this.showFloatingText(cx * TILE_SIZE, cy * TILE_SIZE - 40, `🎨 Смешивание: ${primary} → ${secondary}`);
+    this.repositionPlayerOnWalkable();
+    this.cameras.main.shake(300, 0.005);
+  }
+
+  // Утилита: обновление спрайта тайла по координатам
+  private updateTileSprite(x: number, y: number, tileType: string, biome: BiomeType, extraTint?: number) {
+    const idx = y * MAP_W + x;
+    const sprite = this.tileSprites[idx];
+    if (!sprite) return;
+
+    // Определяем текстуру по типу и биому
+    let texture = this.tileTexture(tileType as TileId);
+    // Для биомных текстур переопределяем
+    if (biome === "snow" && tileType === "grass") texture = "tile-snow";
+    else if (biome === "snow" && tileType === "water") texture = "tile-water";
+    else if (biome === "lava" && tileType === "grass") texture = "tile-magma";
+    else if (biome === "desert" && tileType === "grass") texture = "tile-sand";
+    else if (biome === "snow" && tileType === "tree") texture = "tile-pine-snow";
+    else if (biome === "lava" && tileType === "tree") texture = "tile-volcanic";
+    else if (biome === "desert" && tileType === "tree") texture = "tile-cactus";
+
+    sprite.setTexture(texture);
+    sprite.setAlpha(this.tileAlpha(tileType as TileId));
+    if (extraTint !== undefined) {
+      sprite.setTint(extraTint);
+    } else {
+      sprite.clearTint();
+    }
+    sprite.setData("biome", biome);
+  }
 }
 
 export function createPhaserGame(cb: GameCallbacks): PhaserGameInstance {
