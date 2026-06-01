@@ -41,7 +41,7 @@ export type BiomeTileId =
 export type TimeOfDay = "day" | "dusk" | "night" | "dawn";
 
 // Типы биомов для терраформирования
-export type BiomeType = "default" | "lava" | "desert" | "snow";
+export type BiomeType = "default" | "lava" | "desert" | "snow" | "city";
 
 // Элемент инвентаря с информацией о биоме
 export interface InventoryItem {
@@ -576,12 +576,7 @@ class MainScene extends Phaser.Scene {
 
     // Проверяем расстояние до игрока (нельзя взаимодействовать слишком далеко)
     const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, worldX, worldY);
-<<<<<<< HEAD
     if (dist > TILE_SIZE * 4) return;
-=======
-    if (dist > TILE_SIZE * 3) return;
->>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
-
     if (this.shiftDown || this.mouseButton === 1) {
       // Shift+ЛКМ или ПКМ - поставить тайл
       this.placeTile(tx, ty);
@@ -711,8 +706,8 @@ class MainScene extends Phaser.Scene {
     const worldData = this.exportWorldData();
     console.log("Сохранение мира:", worldData);
     
-    // Визуальный эффект сохранения
-    this.cameras.main.flash(200, 255, 107, 65);
+    // Визуальный эффект сохранения (безопасный вызов — камера может быть не готова)
+    try { this.cameras.main.flash(200, 255, 107, 65); } catch (_) {}
     gameEvents.emit('world-saved', {});
     
     // Возвращаем данные для внешней обработки
@@ -2215,7 +2210,6 @@ class MainScene extends Phaser.Scene {
       return;
     }
 
-<<<<<<< HEAD
     // 🌿 ТРАВА / ПЕСОК / СНЕГ / МАГМА — копается, учитываем биом
     if (tile === "grass") {
       const idx_g = ty * MAP_W + tx;
@@ -2255,26 +2249,7 @@ class MainScene extends Phaser.Scene {
       const displayName_g = this.getItemDisplayName(biomeItemId_g);
       this.showFloatingText(px, py, `+1 ${displayName_g}`);
       gameEvents.emit('block-collected', { type: biomeItemId_g, amount: 1, baseId: "grass", biome: tileBiome_g });
-      gameEvents.emit('tile-broken', { tile, itemKey: biomeItemId_g, x: tx, y: ty });
-=======
-    // 🌿 ТРАВА — копается, превращается в грязь
-    if (tile === "grass") {
-      this.spawnDebrisEffect(px, py, 0x3a7a45, 6);
-      this.setTileVisual(tx, ty, "dirt", "tile-dirt");
-      this.cameras.main.shake(60, 0.002);
-
-      // Выдаём траву в инвентарь
-      if (!this.inventoryWithBiomes["grass"]) {
-        this.inventoryWithBiomes["grass"] = { id: "grass", type: "default", tint: undefined, scale: 1, count: 0 };
-      }
-      this.inventoryWithBiomes["grass"].count += 1;
-      this.inventory["grass"] = (this.inventory["grass"] ?? 0) + 1;
-      this.emitInventory();
-      this.showFloatingText(px, py, `+1 🌿 Трава`);
-      gameEvents.emit('block-collected', { type: "grass", amount: 1, baseId: "grass", biome: "default" });
-      gameEvents.emit('tile-broken', { tile, itemKey: "grass", x: tx, y: ty });
->>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
-      return;
+      gameEvents.emit('tile-broken', { tile, itemKey: biomeItemId_g, x: tx, y: ty });      return;
     }
 
 
@@ -2286,7 +2261,6 @@ class MainScene extends Phaser.Scene {
       return; // лёд не даёт предмет — просто оставляет грязь
     }
 
-<<<<<<< HEAD
     // 🌲 ДЕРЕВО — ломается на доски (default) или биомный эквивалент
     if (tile === "tree") {
       const idx_t = ty * MAP_W + tx;
@@ -2350,29 +2324,7 @@ class MainScene extends Phaser.Scene {
         gameEvents.emit('block-collected', { type: biomeItemId_t, amount: 1, baseId: "tree", biome: tileBiome_t });
         gameEvents.emit('block-collected', { type: "tree", amount: 1, baseId: "tree", biome: tileBiome_t });
         gameEvents.emit('tile-broken', { tile, itemKey: biomeItemId_t, x: tx, y: ty });
-      }
-=======
-    // 🌲 ДЕРЕВО — ломается на доски
-    if (tile === "tree") {
-      this.spawnDebrisEffect(px, py, 0x6b4226, 12);
-      // Кладём грязь под деревом вместо травы
-      this.setTileVisual(tx, ty, "dirt", "tile-dirt");
-      this.cameras.main.shake(120, 0.005);
-
-      // Выдаём доски (2-3 штуки)
-      const boardCount = 2 + Math.floor(this.rng() * 2);
-      const baseKey: TileId = "board";
-      if (!this.inventoryWithBiomes["board"]) {
-        this.inventoryWithBiomes["board"] = { id: "board", type: "default", tint: undefined, scale: 1, count: 0 };
-      }
-      this.inventoryWithBiomes["board"].count += boardCount;
-      this.inventory[baseKey] = (this.inventory[baseKey] ?? 0) + boardCount;
-      this.emitInventory();
-      this.showFloatingText(px, py, `+${boardCount} 🪵 Досок`);
-      gameEvents.emit('block-collected', { type: "board", amount: boardCount, baseId: "board", biome: "default" });
-      gameEvents.emit('tile-broken', { tile, itemKey: "board", x: tx, y: ty });
->>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
-      return;
+      }      return;
     }
 
     // ══════════════════════════════════════════════
@@ -2439,28 +2391,19 @@ class MainScene extends Phaser.Scene {
     }
 
     // Добавляем предмет в inventoryWithBiomes (единый источник правды)
-<<<<<<< HEAD
     // baseKey — базовый тип тайла (grass, rock, tree...), biomeItemId — полный ключ (grass_sand, rock_snow...)
     const baseKey = tile as Exclude<TileId, "empty" | "water">;
     // Используем biomeItemId как ключ инвентаря чтобы песок был "grass_sand", а не "grass"
     const inventoryKey = biomeItemId;
     if (!this.inventoryWithBiomes[inventoryKey]) {
       const biomeType = this.getBiomeTypeFromItemId(inventoryKey);
-      this.inventoryWithBiomes[inventoryKey] = { 
-=======
-    const baseKey = tile as Exclude<TileId, "empty" | "water">;
-    if (!this.inventoryWithBiomes[biomeItemId]) {
-      const biomeType = this.getBiomeTypeFromItemId(biomeItemId);
-      this.inventoryWithBiomes[biomeItemId] = { 
->>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
-        id: baseKey, 
+      this.inventoryWithBiomes[inventoryKey] = {         id: baseKey, 
         type: biomeType,
         tint: undefined, 
         scale: 1,
         count: 0 
       };
     }
-<<<<<<< HEAD
     this.inventoryWithBiomes[inventoryKey].count++;
     
     // Синхронизируем обычный инвентарь по biomeItemId ключу
@@ -2471,20 +2414,7 @@ class MainScene extends Phaser.Scene {
     // Генерируем событие для React
     const biomeType = this.getBiomeTypeFromItemId(inventoryKey);
     gameEvents.emit('block-collected', { 
-      type: inventoryKey, 
-=======
-    this.inventoryWithBiomes[biomeItemId].count++;
-    
-    // Синхронизируем обычный инвентарь (по базовому ключу — для обратной совместимости)
-    this.inventory[baseKey] = (this.inventory[baseKey] ?? 0) + 1;
-    this.emitInventory();
-
-    // Генерируем событие для React
-    const biomeType = this.getBiomeTypeFromItemId(biomeItemId);
-    gameEvents.emit('block-collected', { 
-      type: biomeItemId, 
->>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
-      amount: 1,
+      type: inventoryKey,       amount: 1,
       baseId: baseKey,
       biome: biomeType
     });
@@ -2650,6 +2580,7 @@ class MainScene extends Phaser.Scene {
     if (itemId.endsWith('_snow')) return 'snow';
     if (itemId.endsWith('_magma')) return 'lava';
     if (itemId.endsWith('_sand')) return 'desert';
+    if (itemId.endsWith('_city')) return 'city';
     return 'default';
   }
 
@@ -2659,6 +2590,7 @@ class MainScene extends Phaser.Scene {
       case 'snow':   return { texture: 'tile-snow',     tint: undefined };
       case 'lava':   return { texture: 'tile-magma',    tint: undefined };
       case 'desert': return { texture: 'tile-sand',     tint: undefined };
+      case 'city':   return { texture: 'tile-concrete', tint: 0x2a2a2a };
       default:       return { texture: 'tile-grass',    tint: undefined };
     }
   }
@@ -2817,7 +2749,8 @@ class MainScene extends Phaser.Scene {
       fromDef = tileFromText(removeMatch[1]);
       const groundTex = this.currentBiome === 'snow' ? 'tile-snow' :
                         this.currentBiome === 'lava' ? 'tile-magma' :
-                        this.currentBiome === 'desert' ? 'tile-sand' : 'tile-grass';
+                        this.currentBiome === 'desert' ? 'tile-sand' :
+                        this.currentBiome === 'city' ? 'tile-concrete' : 'tile-grass';
       toDef = { tile: "grass", texture: groundTex, biome: this.currentBiome };
     }
 
@@ -2878,6 +2811,7 @@ class MainScene extends Phaser.Scene {
     const isDesert  = /песок|пустын|засух|сух|сахар|барх|знойн|аридн|кактус/.test(text);
     const isSnow    = /снег|зим|холод|лёд|лед|мороз|тундр|арктик|северн|вьюг|пургa|замёрз/.test(text);
     const isSwamp   = /болот|топ|трясин|туман|гнил|мшист/.test(text);
+    const isCity    = /город|урбан|мегаполис|улиц|здани|небоскр|метропол|urban|city/.test(text);
     const isJungle  = /джунгл|тропик|экватор|лиан|влажн|буйн/.test(text);
     const isOcean   = /океан|море|вод|затоплен|остров/.test(text);
     const isForest  = /лес|роща|дерев|чащ|бор/.test(text);
@@ -2885,12 +2819,13 @@ class MainScene extends Phaser.Scene {
 
     // Определяем доминирующий биом
     let newBiome: BiomeType = "default";
-    if (isLava)   newBiome = "lava";
+    if (isLava)        newBiome = "lava";
     else if (isDesert) newBiome = "desert";
     else if (isSnow)   newBiome = "snow";
+    else if (isCity)   newBiome = "city";
 
     // Если ни один биом не распознан — делаем процедурный лесной/луговой биом
-    if (newBiome === "default" && !isForest && !isJungle && !isSwamp && !isOcean && !isRuins) {
+    if (newBiome === "default" && !isForest && !isJungle && !isSwamp && !isOcean && !isRuins && !isCity) {
       console.log("Терраформирование: сброс к исходному состоянию");
       this.currentBiome = "default";
       this.renderTiles(true);
@@ -2899,6 +2834,9 @@ class MainScene extends Phaser.Scene {
     }
 
     console.log("Терраформирование:", text, "→ биом:", newBiome);
+
+    // Сброс плана города при смене биома
+    delete (this as any).__cityPlan;
 
     // ШАГ 1: Сброс всех tint и данных
     for (let y = 0; y < MAP_H; y++) {
@@ -2916,6 +2854,26 @@ class MainScene extends Phaser.Scene {
 
     this.currentBiome = newBiome;
 
+    // Для городского биома — перезаписываем this.tiles по плану до отрисовки
+    if (newBiome === "city") {
+      this.buildCityPlan();
+      const plan: number[][] = (this as any).__cityPlan;
+      for (let y = 0; y < MAP_H; y++) {
+        for (let x = 0; x < MAP_W; x++) {
+          const cell = (plan[y] && plan[y][x] !== undefined) ? plan[y][x] : 0;
+          if (cell === 3 || cell === 4) {
+            this.tiles[y][x] = "rock";
+          } else if (cell === 5) {
+            this.tiles[y][x] = "ruins";
+          } else if (cell === 6) {
+            this.tiles[y][x] = "water";
+          } else {
+            this.tiles[y][x] = "grass";
+          }
+        }
+      }
+    }
+
     // ШАГ 2: Применяем биом
     for (let y = 0; y < MAP_H; y++) {
       for (let x = 0; x < MAP_W; x++) {
@@ -2930,6 +2888,8 @@ class MainScene extends Phaser.Scene {
           this.applyDesertTile(x, y, tile, sprite, idx);
         } else if (newBiome === "snow") {
           this.applySnowTile(x, y, tile, sprite, idx);
+        } else if (newBiome === "city") {
+          this.applyCityTile(x, y, tile, sprite, idx);
         } else {
           // Дефолт — применяем модификаторы (лес, болото, океан, руины)
           this.applyDefaultModifiers(x, y, tile, sprite, idx, { isSwamp, isJungle, isOcean, isForest, isRuins });
@@ -3009,10 +2969,14 @@ class MainScene extends Phaser.Scene {
       lava: "lava", volcanic: "lava", magma: "lava", fire: "lava",
       desert: "desert", sand: "desert",
       grass: "default", forest: "default", default: "default",
+      city: "city", urban: "city", town: "city",
     };
 
-    const newBiome = biomeMap[biomeType.toLowerCase()] ?? "default";
+    const newBiome = (biomeMap[biomeType.toLowerCase()] ?? "default") as BiomeType;
     console.log("applyBiome:", biomeType, "→", newBiome);
+
+    // Сброс плана города (пересчитается при следующем применении city-биома)
+    delete (this as any).__cityPlan;
 
     // Сброс всех tint и данных
     for (let y = 0; y < MAP_H; y++) {
@@ -3030,6 +2994,27 @@ class MainScene extends Phaser.Scene {
 
     this.currentBiome = newBiome;
 
+    // Для городского биома — сначала перезаписываем this.tiles по плану,
+    // чтобы вода и другие нежелательные тайлы заменились до отрисовки
+    if (newBiome === "city") {
+      this.buildCityPlan();
+      const plan: number[][] = (this as any).__cityPlan;
+      for (let y = 0; y < MAP_H; y++) {
+        for (let x = 0; x < MAP_W; x++) {
+          const cell = (plan[y] && plan[y][x] !== undefined) ? plan[y][x] : 0;
+          if (cell === 3 || cell === 4) {
+            this.tiles[y][x] = "rock";
+          } else if (cell === 5) {
+            this.tiles[y][x] = "ruins";
+          } else if (cell === 6) {
+            this.tiles[y][x] = "water";
+          } else {
+            this.tiles[y][x] = "grass";
+          }
+        }
+      }
+    }
+
     // Применяем биом ко всей карте
     for (let y = 0; y < MAP_H; y++) {
       for (let x = 0; x < MAP_W; x++) {
@@ -3045,6 +3030,8 @@ class MainScene extends Phaser.Scene {
           this.applyDesertTile(x, y, tile, sprite, idx);
         } else if (newBiome === "snow") {
           this.applySnowTile(x, y, tile, sprite, idx);
+        } else if (newBiome === "city") {
+          this.applyCityTile(x, y, tile, sprite, idx);
         } else {
           // Default biome — просто возвращаем базовые текстуры
           sprite.setTexture(this.tileTexture(tile));
@@ -3118,6 +3105,7 @@ class MainScene extends Phaser.Scene {
       case 'lava': return 'Лавовый биом';
       case 'desert': return 'Пустынный биом';
       case 'snow': return 'Снежный биом';
+      case 'city': return 'Городской биом';
       default: return 'Биом обновлён';
     }
   }
@@ -3125,28 +3113,17 @@ class MainScene extends Phaser.Scene {
   private applyLavaTile(x: number, y: number, tile: TileId, sprite: Phaser.GameObjects.Image, idx: number) {
     const r = Math.random();
     if (tile === "grass") {
-<<<<<<< HEAD
       // Оставляем tile = "grass" для ходьбы, но визуально — магма/вулкан
       // biome = lava → при добыче выдаст "grass_magma" (магматическая порода)
       if (r > 0.35) {
-=======
-      if (r > 0.35) {
-        this.tiles[y][x] = "rock";
->>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
         sprite.setTexture("tile-volcanic");
       } else {
         sprite.setTexture("tile-magma");
       }
       sprite.setData('biome', 'lava'); sprite.setData('type', 'lava');
     } else if (tile === "tree") {
-<<<<<<< HEAD
       // Дерево → уголь или магма-пол (walkable)
       if (r > 0.5) {
-=======
-      // Дерево → уголь (тёмный вулканический) или магма
-      if (r > 0.5) {
-        this.tiles[y][x] = "rock";
->>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
         sprite.setTexture("tile-volcanic");
         sprite.setTint(0x333333);
       } else {
@@ -3166,7 +3143,6 @@ class MainScene extends Phaser.Scene {
   private applyDesertTile(x: number, y: number, tile: TileId, sprite: Phaser.GameObjects.Image, idx: number) {
     const r = Math.random();
     if (tile === "grass") {
-<<<<<<< HEAD
       // grass остаётся "grass" в tiles (проходимо), визуально — песок
       // biome=desert → при добыче даёт "grass_sand" = Песок
       sprite.setTexture("tile-sand");
@@ -3177,18 +3153,11 @@ class MainScene extends Phaser.Scene {
         sprite.setTexture("tile-cactus");
         // tree_desert → при ломании даст кактус
       }
-=======
-      sprite.setTexture("tile-sand");
-      sprite.setData('biome', 'desert'); sprite.setData('type', 'desert');
->>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
     } else if (tile === "tree") {
       // Дерево → кактус (60%) или песок (40%)
       if (r > 0.4) {
         sprite.setTexture("tile-cactus");
-<<<<<<< HEAD
         // tile остаётся "tree" → при добыче: tree + biome=desert → "tree_sand" = Кактус
-=======
->>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
       } else {
         this.tiles[y][x] = "grass";
         sprite.setTexture("tile-sand");
@@ -3198,22 +3167,13 @@ class MainScene extends Phaser.Scene {
       sprite.setTint(0xccbb99);
       sprite.setData('biome', 'desert'); sprite.setData('type', 'desert');
     } else if (tile === "water") {
-      // Пересохший водоём → оазис или песок
       if (r > 0.7) {
-        sprite.setTint(0x8ba888); // оазис — зеленоватый
+        sprite.setTint(0x8ba888);
       } else {
-        sprite.setTint(0xedc9af); // пересохший — песочный
+        sprite.setTint(0xedc9af);
       }
       sprite.setData('biome', 'desert'); sprite.setData('type', 'desert');
     }
-<<<<<<< HEAD
-=======
-    // Рассыпаем доп. кактусы
-    if (tile === "grass" && r > 0.88) {
-      this.tiles[y][x] = "tree";
-      sprite.setTexture("tile-cactus");
-    }
->>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
   }
 
   private applySnowTile(x: number, y: number, tile: TileId, sprite: Phaser.GameObjects.Image, idx: number) {
@@ -3232,6 +3192,245 @@ class MainScene extends Phaser.Scene {
       sprite.setTexture("tile-frozen-lake");
       sprite.setAlpha(this.tileAlpha("frozen_lake"));
       sprite.setData('biome', 'snow'); sprite.setData('type', 'snow');
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // ГОРОДСКОЙ БИОМ — полная процедурная генерация
+  // Вызывается один раз для всей карты из applyBiome / terraformMap.
+  // Стратегия:
+  //   1. Сначала строим «городской план» (grid-based):
+  //      улицы через каждые BLOCK_SIZE тайлов, кварталы между ними.
+  //   2. Внутри кварталов случайно расставляем здания, башни, парки.
+  //   3. Сохраняем результат в cityPlan[][], затем applyCityTile()
+  //      читает его вместо Math.random().
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /** Вызывается ПЕРЕД попиксельной отрисовкой, строит cityPlan[][] */
+  private buildCityPlan() {
+    // plan[y][x]:
+    // 0 = улица (тёмный асфальт)
+    // 1 = тротуар (светлый бетон)
+    // 2 = пол здания / двор (доски, проходимо)
+    // 3 = стена здания (кирпич/бетон, непроходимо)
+    // 4 = башня / городская стена (непроходимо)
+    // 5 = руины / заросли (непроходимо)
+    // 6 = фонтан / канал (вода)
+    type Plan = number;
+    const plan: Plan[][] = Array.from({ length: MAP_H }, () => new Array(MAP_W).fill(0));
+
+    const BLOCK  = 9;  // размер квартала включая улицу
+    const STREET = 2;  // ширина улицы
+
+    // ── 1. Базовая сетка улиц ──────────────────────────────────────────────
+    for (let y = 0; y < MAP_H; y++) {
+      for (let x = 0; x < MAP_W; x++) {
+        const bx = x % BLOCK;
+        const by = y % BLOCK;
+        if (bx < STREET || by < STREET) {
+          plan[y][x] = 0; // улица
+        } else {
+          // Внутри квартала — тротуар по краю, потом заполним зданиями
+          plan[y][x] = (bx === STREET || by === STREET) ? 1 : 2;
+        }
+      }
+    }
+
+    // ── 2. Заполняем кварталы детерминированно ────────────────────────────
+    let _s = 0xC175EED | 0;
+    const cr = () => {
+      _s ^= _s << 13; _s ^= _s >> 17; _s ^= _s << 5;
+      return ((_s >>> 0) / 0xffffffff);
+    };
+
+    for (let blockY = 0; blockY * BLOCK < MAP_H; blockY++) {
+      for (let blockX = 0; blockX * BLOCK < MAP_W; blockX++) {
+        const ix0 = blockX * BLOCK + STREET;
+        const iy0 = blockY * BLOCK + STREET;
+        const iW  = BLOCK - STREET; // 7
+        const iH  = BLOCK - STREET; // 7
+        if (ix0 >= MAP_W || iy0 >= MAP_H) continue;
+
+        const roll = cr();
+
+        const setCell = (dx: number, dy: number, v: number) => {
+          const px = ix0 + dx, py = iy0 + dy;
+          if (px < MAP_W && py < MAP_H) plan[py][px] = v;
+        };
+
+        if (roll < 0.12) {
+          // ── БОЛЬШАЯ БАШНЯ: весь квартал — стены + зубцы ──────────────
+          for (let dy = 0; dy < iH; dy++)
+            for (let dx = 0; dx < iW; dx++) {
+              const isEdge = dx === 0 || dx === iW-1 || dy === 0 || dy === iH-1;
+              setCell(dx, dy, isEdge ? 4 : 2);
+            }
+          // Зубцы наверху
+          for (let dx = 0; dx < iW; dx += 2) setCell(dx, 0, 4);
+          // Вход
+          setCell(Math.floor(iW/2), iH-1, 0);
+
+        } else if (roll < 0.35) {
+          // ── ЗДАНИЕ СО СТЕНАМИ ─────────────────────────────────────────
+          for (let dy = 0; dy < iH; dy++)
+            for (let dx = 0; dx < iW; dx++) {
+              const isEdge = dx === 0 || dx === iW-1 || dy === 0 || dy === iH-1;
+              setCell(dx, dy, isEdge ? 3 : 2);
+            }
+          // Дверь по центру
+          setCell(Math.floor(iW/2), iH-1, 1);
+
+        } else if (roll < 0.50) {
+          // ── МАЛЕНЬКИЙ ДОМ В ЦЕНТРЕ КВАРТАЛА ──────────────────────────
+          // Двор вокруг (асфальт)
+          for (let dy = 0; dy < iH; dy++)
+            for (let dx = 0; dx < iW; dx++) setCell(dx, dy, 1);
+          // Дом: 3x3 или 4x4 в центре
+          const hw = 3 + (blockX % 2), hh = 3 + (blockY % 2);
+          const hx = Math.floor((iW - hw) / 2);
+          const hy = Math.floor((iH - hh) / 2);
+          for (let dy = 0; dy < hh; dy++)
+            for (let dx = 0; dx < hw; dx++) {
+              const isEdge = dx === 0 || dx === hw-1 || dy === 0 || dy === hh-1;
+              setCell(hx+dx, hy+dy, isEdge ? 3 : 2);
+            }
+
+        } else if (roll < 0.65) {
+          // ── РУИНЫ / РАЗРУШЕННЫЙ КВАРТАЛ ──────────────────────────────
+          for (let dy = 0; dy < iH; dy++)
+            for (let dx = 0; dx < iW; dx++) {
+              const v = cr() < 0.55 ? 5 : (cr() < 0.4 ? 3 : 1);
+              setCell(dx, dy, v);
+            }
+
+        } else if (roll < 0.78) {
+          // ── ПОЛНОСТЬЮ РАЗРУШЕНО (руины + обломки) ─────────────────────
+          for (let dy = 0; dy < iH; dy++)
+            for (let dx = 0; dx < iW; dx++)
+              setCell(dx, dy, 5);
+
+        } else {
+          // ── ПУСТОЙ ДВОР (булыжник/тротуар) ───────────────────────────
+          for (let dy = 0; dy < iH; dy++)
+            for (let dx = 0; dx < iW; dx++)
+              setCell(dx, dy, 1);
+        }
+      }
+    }
+
+    // ── 3. Главная площадь (центр) ────────────────────────────────────────
+    const sqX = Math.floor(MAP_W / 2) - 5;
+    const sqY = Math.floor(MAP_H / 2) - 5;
+    for (let dy = 0; dy < 10; dy++)
+      for (let dx = 0; dx < 10; dx++) {
+        const px = sqX+dx, py = sqY+dy;
+        if (px >= 0 && px < MAP_W && py >= 0 && py < MAP_H) plan[py][px] = 0;
+      }
+    // Фонтан в центре площади
+    for (const [fx, fy] of [[sqX+4,sqY+4],[sqX+4,sqY+5],[sqX+5,sqY+4],[sqX+5,sqY+5]]) {
+      if (fx >= 0 && fx < MAP_W && fy >= 0 && fy < MAP_H) plan[fy][fx] = 6;
+    }
+    // Обломки по краям площади
+    for (const [fx, fy] of [[sqX,sqY],[sqX+9,sqY],[sqX,sqY+9],[sqX+9,sqY+9]]) {
+      if (fx >= 0 && fx < MAP_W && fy >= 0 && fy < MAP_H) plan[fy][fx] = 5;
+    }
+
+    // ── 4. Городская стена по периметру ───────────────────────────────────
+    for (let x = 0; x < MAP_W; x++) {
+      plan[0][x] = 4; plan[1][x] = 4;
+      plan[MAP_H-1][x] = 4; plan[MAP_H-2][x] = 4;
+    }
+    for (let y = 2; y < MAP_H-2; y++) {
+      plan[y][0] = 4; plan[y][1] = 4;
+      plan[y][MAP_W-1] = 4; plan[y][MAP_W-2] = 4;
+    }
+    // Башни по углам (5x5)
+    for (const [cx, cy] of [[2,2],[MAP_W-7,2],[2,MAP_H-7],[MAP_W-7,MAP_H-7]]) {
+      for (let dy = 0; dy < 5; dy++)
+        for (let dx = 0; dx < 5; dx++) {
+          const px = cx+dx, py = cy+dy;
+          if (px >= 0 && px < MAP_W && py >= 0 && py < MAP_H) plan[py][px] = 4;
+        }
+    }
+    // Ворота (проходы по центру каждой стены)
+    const mid = Math.floor(MAP_W / 2);
+    const midY = Math.floor(MAP_H / 2);
+    plan[0][mid] = 0; plan[0][mid+1] = 0;
+    plan[1][mid] = 0; plan[1][mid+1] = 0;
+    plan[MAP_H-1][mid] = 0; plan[MAP_H-2][mid] = 0;
+    plan[MAP_H-1][mid+1] = 0; plan[MAP_H-2][mid+1] = 0;
+    plan[midY][0] = 0; plan[midY][1] = 0;
+    plan[midY+1][0] = 0; plan[midY+1][1] = 0;
+    plan[midY][MAP_W-1] = 0; plan[midY][MAP_W-2] = 0;
+    plan[midY+1][MAP_W-1] = 0; plan[midY+1][MAP_W-2] = 0;
+
+    (this as any).__cityPlan = plan;
+  }
+
+  private applyCityTile(x: number, y: number, tile: TileId, sprite: Phaser.GameObjects.Image, idx: number) {
+    const plan: number[][] = (this as any).__cityPlan;
+    if (!plan) return;
+
+    const cell = (plan[y] && plan[y][x] !== undefined) ? plan[y][x] : 0;
+
+    switch (cell) {
+      case 0: // ── УЛИЦА ──────────────────────────────────────────────────
+        this.tiles[y][x] = "grass";
+        sprite.setTexture("tile-concrete");
+        sprite.setTint(0x141414); // почти чёрный асфальт
+        sprite.setData('biome', 'city'); sprite.setData('type', 'street');
+        break;
+
+      case 1: // ── ТРОТУАР / ДВОР ─────────────────────────────────────────
+        this.tiles[y][x] = "grass";
+        sprite.setTexture("tile-concrete");
+        // Чередуем светлый/тёмный бетон для брусчатки
+        sprite.setTint(((x + y) % 2 === 0) ? 0x3a3a3a : 0x2e2e2e);
+        sprite.setData('biome', 'city'); sprite.setData('type', 'sidewalk');
+        break;
+
+      case 2: // ── ПОЛ ЗДАНИЯ ─────────────────────────────────────────────
+        this.tiles[y][x] = "grass";
+        sprite.setTexture("tile-board");
+        sprite.setTint(0x1e1610);
+        sprite.setData('biome', 'city'); sprite.setData('type', 'floor');
+        break;
+
+      case 3: { // ── СТЕНА ЗДАНИЯ ───────────────────────────────────────────
+        this.tiles[y][x] = "rock";
+        sprite.setTexture("tile-rock");
+        const t = (x * 3 + y * 7) % 3;
+        sprite.setTint(t === 0 ? 0x4a2e1a : t === 1 ? 0x282828 : 0x3a2e20);
+        sprite.setData('biome', 'city'); sprite.setData('type', 'wall');
+        break;
+      }
+
+      case 4: // ── БАШНЯ / СТЕНА ──────────────────────────────────────────
+        this.tiles[y][x] = "rock";
+        sprite.setTexture((x + y) % 2 === 0 ? "tile-concrete" : "tile-rock");
+        sprite.setTint((x + y) % 2 === 0 ? 0x4a4830 : 0x2a2820);
+        sprite.setData('biome', 'city'); sprite.setData('type', 'tower');
+        break;
+
+      case 5: // ── РУИНЫ ──────────────────────────────────────────────────
+        this.tiles[y][x] = "ruins";
+        sprite.setTexture("tile-ruins");
+        sprite.setTint(((x * 5 + y * 3) % 3) === 0 ? 0x2e2a1a : 0x1e1e2a);
+        sprite.setData('biome', 'city'); sprite.setData('type', 'ruins');
+        break;
+
+      case 6: // ── ФОНТАН ─────────────────────────────────────────────────
+        this.tiles[y][x] = "water";
+        sprite.setTexture("tile-water");
+        sprite.setTint(0x1a3366);
+        sprite.setData('biome', 'city'); sprite.setData('type', 'fountain');
+        break;
+
+      default:
+        this.tiles[y][x] = "grass";
+        sprite.setTexture("tile-concrete");
+        sprite.setTint(0x1c1c1c);
+        sprite.setData('biome', 'city'); sprite.setData('type', 'city');
     }
   }
 
@@ -3267,6 +3466,7 @@ class MainScene extends Phaser.Scene {
       desert: "desert", sand: "desert", arid: "desert",
       forest: "default", default: "default", swamp: "default",
       meadow: "default", jungle: "default",
+      city: "city", urban: "city", town: "city",
     };
     this.currentBiome = biomeMap[biome.toLowerCase()] ?? "default";
 
@@ -3293,10 +3493,13 @@ class MainScene extends Phaser.Scene {
       "D": { tile: "grass",  texture: "tile-sand",      biome: "desert" },
       "N": { tile: "rock",   texture: "tile-rock",      tint: 0xccbb99, biome: "desert" },
       "K": { tile: "tree",   texture: "tile-cactus",    biome: "desert" },
-      // === БОЛОТО / ГОРОД ===
+      // === БОЛОТО ===
       "B": { tile: "grass",  texture: "tile-bog",       biome: "default" },
       "H": { tile: "tree",   texture: "tile-tree",      tint: 0x7a5a9a, biome: "default" },
-      // extras из route.ts (нужно явно покрыть каждый):
+      // === ГОРОД ===
+      "e": { tile: "rock",     texture: "tile-concrete",  biome: "city"    }, // мостовая/асфальт
+      "a": { tile: "glass",    texture: "tile-glass",     biome: "city"    }, // стекло/витрины
+      "b": { tile: "board",    texture: "tile-board",     biome: "city"    }, // доски/заборы
       "X": { tile: "ruins",  texture: "tile-ruins",     tint: 0x8b7355, biome: "default" }, // куст/обломки
       "J": { tile: "ruins",  texture: "tile-mushroom",  biome: "default" },                 // гриб
       "Z": { tile: "rock",   texture: "tile-rock",      tint: 0x884400, biome: "lava" },    // обугл. камень
@@ -3311,9 +3514,6 @@ class MainScene extends Phaser.Scene {
       "y": { tile: "mythic_rock",   texture: "tile-mythic-rock",  biome: "default" },
       "c": { tile: "crystal",       texture: "tile-crystal",      biome: "default" },
       "q": { tile: "quartz",        texture: "tile-quartz",       biome: "default" },
-      "b": { tile: "board",         texture: "tile-board",        biome: "default" },
-      "a": { tile: "glass",         texture: "tile-glass",        biome: "default" },
-      "e": { tile: "concrete",      texture: "tile-concrete",     biome: "default" },
       "p": { tile: "plant",         texture: "tile-plant",        biome: "default" },
       "g": { tile: "glowing_mushroom", texture: "tile-glow-mushroom", biome: "default" },
       "r": { tile: "ash",           texture: "tile-ash",          biome: "default" },
@@ -3365,6 +3565,8 @@ class MainScene extends Phaser.Scene {
         { tile: "grass" as TileId, texture: "tile-magma", biome: "lava" as BiomeType } :
         this.currentBiome === 'desert' ? 
         { tile: "grass" as TileId, texture: "tile-sand", biome: "desert" as BiomeType } :
+        this.currentBiome === 'city' ?
+        { tile: "grass" as TileId, texture: "tile-concrete", biome: "city" as BiomeType } :
         { tile: "grass" as TileId, texture: "tile-grass", biome: "default" as BiomeType };
 
       for (let y = 0; y < MAP_H; y++) {
