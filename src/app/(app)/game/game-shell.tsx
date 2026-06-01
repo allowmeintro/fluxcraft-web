@@ -5,7 +5,11 @@ import Link from "next/link";
 import {
   Send, Save, ImageIcon, Loader2, Brain, Zap, Map, Package,
   Sun, Moon, Sunset, Sunrise, ChevronUp, ChevronDown,
+<<<<<<< HEAD
   Trash2, RefreshCw, Hammer, Clock, Globe, Sparkles, Trophy, CheckCircle2, ListChecks, Terminal, ChevronRight, Eye, EyeOff
+=======
+  Trash2, RefreshCw, Hammer, Clock, Globe, Sparkles, Trophy, CheckCircle2, ListChecks
+>>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -42,6 +46,7 @@ type Quest = {
 };
 
 const INITIAL_QUESTS: Quest[] = [
+<<<<<<< HEAD
   // ── МОДУЛЬ 1: Введение в ресурсоведение ──────────────────────────────────
   { id: 1,  title: "Практика №1: Лесозаготовка",     desc: "Сломай 5 деревьев — изучаем древесные ресурсы (ЛКМ)", target: 5,  current: 0, completed: false, type: "collect", targetId: "tree" },
   { id: 2,  title: "Практика №2: Горное дело",        desc: "Добудь 8 блоков камня — основы геологии (ЛКМ)",      target: 8,  current: 0, completed: false, type: "collect", targetId: "rock" },
@@ -65,6 +70,13 @@ const INITIAL_QUESTS: Quest[] = [
   { id: 15, title: "Диплом: Научный город",           desc: "Попроси ИИ: «Построй научный город» — итоговая работа", target: 1, current: 0, completed: false, type: "build" },
   // ── ФИНАЛ ────────────────────────────────────────────────────────────────
   { id: 16, title: "🎓 Диплом Есенова выдан!", desc: "Все курсы пройдены! Ты — магистр FluxCraft. Твори свободно.", target: 1, current: 1, completed: true, type: "done" }
+=======
+  { id: 1, title: "Первые шаги", desc: "Добудь 5 блоков дерева (ЛКМ)", target: 5, current: 0, completed: false, type: "collect", targetId: "tree" },
+  { id: 2, title: "Шахтёр", desc: "Добудь 5 блоков камня (ЛКМ)", target: 5, current: 0, completed: false, type: "collect", targetId: "rock" },
+  { id: 3, title: "Магия ИИ", desc: "Напиши в чат: «Сделай пустыню»", target: 1, current: 0, completed: false, type: "terrain", targetId: "desert" },
+  { id: 4, title: "Архитектор", desc: "Попроси ИИ: «Построй дом 5 на 5»", target: 1, current: 0, completed: false, type: "build" },
+  { id: 5, title: "Мастер песочницы", desc: "Все квесты выполнены! Твори свободно.", target: 1, current: 1, completed: true, type: "done" }
+>>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
 ];
 
 // ─── ГИБКАЯ ПРОВЕРКА КОНТЕКСТА ─────────────────────────────────────────────
@@ -432,6 +444,7 @@ export function GameShell() {
   const [input, setInput]           = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [showQuestList, setShowQuestList] = useState(false);
+<<<<<<< HEAD
   const [lastApiCall, setLastApiCall] = useState<{
     prompt: string;
     requestBody: string;
@@ -443,6 +456,8 @@ export function GameShell() {
   const [showCodePanel, setShowCodePanel] = useState(false);
   const [codeTab, setCodeTab] = useState<"request" | "response">("response");
   const [showChat, setShowChat] = useState(false);
+=======
+>>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
 
   // Читаем режим игры из URL
   useEffect(() => {
@@ -453,8 +468,13 @@ export function GameShell() {
   }, []);
 
   const activeQuest = quests.find(q => !q.completed) || quests[quests.length - 1];
+<<<<<<< HEAD
   const completedQuests = quests.filter(q => q.completed && q.id !== 16);
   const totalQuests = quests.filter(q => q.id !== 16).length;
+=======
+  const completedQuests = quests.filter(q => q.completed && q.id !== 5);
+  const totalQuests = quests.filter(q => q.id !== 5).length;
+>>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
   const doneCount = completedQuests.length;
   const allDone = doneCount >= totalQuests;
 
@@ -469,8 +489,12 @@ export function GameShell() {
         
         const q = newQuests[currentIdx];
         if (q.type === "collect" && (data.baseId === q.targetId || data.type === q.targetId)) {
+<<<<<<< HEAD
           // Считаем по 1 за каждое сломанное дерево/блок, не по количеству выпавших предметов
           q.current += 1;
+=======
+          q.current += data.amount;
+>>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
           if (q.current >= q.target) {
             q.current = q.target;
             q.completed = true;
@@ -504,6 +528,7 @@ export function GameShell() {
 
       if (q.type === "terrain" && type === "terrain") {
         const t = promptText.toLowerCase();
+<<<<<<< HEAD
         if (q.targetId === "desert") {
           advance = hasAnyWord(t, "пустын", "песок", "сахар", "бархан", "арид", "засух", "кактус");
         } else if (q.targetId === "snow") {
@@ -512,6 +537,13 @@ export function GameShell() {
           advance = hasAnyWord(t, "лав", "вулкан", "магм", "огонь", "пекл");
         } else {
           // Любой другой террейн-квест (мифика, лес и т.д.)
+=======
+        // Квест на пустыню (id=3): срабатывает на любые упоминания пустыни/песка
+        if (q.targetId === "desert") {
+          advance = hasAnyWord(t, "пустын", "песок", "сахар", "бархан", "арид", "засух", "кактус");
+        } else {
+          // Любой другой террейн-квест
+>>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
           advance = isTerrainRequest(t);
         }
       } else if (q.type === "build" && type === "build") {
@@ -753,7 +785,11 @@ export function GameShell() {
     ["грязи",     "dirt"],
     ["грязн",     "dirt"],
     ["магм",      "mythic_rock"],
+<<<<<<< HEAD
     ["лав",       "mythic_rock"],
+=======
+    ["лава",      "ice"],
+>>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
     ["руин",      "ruins"],
     ["камен",     "rock"],
     ["камн",      "rock"],
@@ -841,6 +877,7 @@ export function GameShell() {
       const playerPos = (window as any).__playerPosition as { x: number; y: number } | undefined;
       const isPlace = userText.toLowerCase().includes("рядом со мной") || userText.toLowerCase().includes("около меня") || userText.toLowerCase().includes("вокруг меня");
 
+<<<<<<< HEAD
       const reqBody = {
         prompt: userText,
         playerX: playerPos?.x ?? 32,
@@ -853,10 +890,22 @@ export function GameShell() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(reqBody),
+=======
+      const res = await fetch("/api/game-ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: userText,
+          playerX: playerPos?.x ?? 32,
+          playerY: playerPos?.y ?? 32,
+          isPlaceCommand: isPlace,
+        }),
+>>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
       });
 
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
+<<<<<<< HEAD
       const duration = Date.now() - t0;
 
       // Сохраняем данные для панели кода (без map-массива — он огромный)
@@ -880,6 +929,8 @@ export function GameShell() {
         duration,
       });
 
+=======
+>>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
       await handleAiResponse(data, userText);
     } catch (err) {
       setMessages(prev => [...prev, {
@@ -935,7 +986,11 @@ export function GameShell() {
       )}
 
       {/* ── Canvas ─────────────────────────────────────────────── */}
+<<<<<<< HEAD
       <div className="flex-1 relative min-w-0 min-h-0 h-full">
+=======
+      <div className="flex-1 relative">
+>>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
         <PhaserCanvas getSelectedTile={getSelectedTile} getSelectedItem={getSelectedItem} onInventory={handleInventory} />
 
         {/* --- ПАНЕЛЬ ТЕКУЩЕГО КВЕСТА (upper-left, glassmorphism) --- */}
@@ -983,7 +1038,11 @@ export function GameShell() {
               <div className="mt-2 bg-zinc-950/70 backdrop-blur-xl border border-orange-500/30 rounded-xl p-3 w-72 shadow-[0_0_25px_rgba(234,88,12,0.1)] pointer-events-none">
                 <h4 className="text-xs font-bold text-orange-200 uppercase tracking-wide mb-2">Все задания</h4>
                 <div className="space-y-2">
+<<<<<<< HEAD
                   {quests.filter(q => q.id !== 16).map(q => {
+=======
+                  {quests.filter(q => q.id !== 5).map(q => {
+>>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
                     const isActive = q.id === activeQuest?.id;
                     const isComplete = q.completed;
                     return (
@@ -1044,6 +1103,7 @@ export function GameShell() {
       </div>
 
       {/* ── Правая панель (стекло) ─────────────────────────────── */}
+<<<<<<< HEAD
       <div className={cn(
         "flex flex-col z-30 shadow-[-4px_0_30px_rgba(0,0,0,0.4)] transition-all duration-300 relative",
         showChat ? "w-96 bg-zinc-900/60 backdrop-blur-xl border-l border-orange-500/20" : "w-0 overflow-visible"
@@ -1060,6 +1120,9 @@ export function GameShell() {
         </button>
 
         {showChat && (<>
+=======
+      <div className="w-96 bg-zinc-900/60 backdrop-blur-xl border-l border-orange-500/20 flex flex-col z-30 shadow-[-4px_0_30px_rgba(0,0,0,0.4)]">
+>>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
 
         {/* Заголовок */}
         <div className="p-3 border-b border-orange-500/20 flex items-center gap-2 bg-zinc-950/60 backdrop-blur-sm shrink-0">
@@ -1294,6 +1357,7 @@ export function GameShell() {
             </Button>
           </div>
         </div>
+<<<<<<< HEAD
         </>)}
       </div>
 
@@ -1415,6 +1479,8 @@ export function GameShell() {
             </div>
           </>
         )}
+=======
+>>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
       </div>
     </div>
   );

@@ -576,7 +576,11 @@ class MainScene extends Phaser.Scene {
 
     // Проверяем расстояние до игрока (нельзя взаимодействовать слишком далеко)
     const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, worldX, worldY);
+<<<<<<< HEAD
     if (dist > TILE_SIZE * 4) return;
+=======
+    if (dist > TILE_SIZE * 3) return;
+>>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
 
     if (this.shiftDown || this.mouseButton === 1) {
       // Shift+ЛКМ или ПКМ - поставить тайл
@@ -2211,6 +2215,7 @@ class MainScene extends Phaser.Scene {
       return;
     }
 
+<<<<<<< HEAD
     // 🌿 ТРАВА / ПЕСОК / СНЕГ / МАГМА — копается, учитываем биом
     if (tile === "grass") {
       const idx_g = ty * MAP_W + tx;
@@ -2251,6 +2256,24 @@ class MainScene extends Phaser.Scene {
       this.showFloatingText(px, py, `+1 ${displayName_g}`);
       gameEvents.emit('block-collected', { type: biomeItemId_g, amount: 1, baseId: "grass", biome: tileBiome_g });
       gameEvents.emit('tile-broken', { tile, itemKey: biomeItemId_g, x: tx, y: ty });
+=======
+    // 🌿 ТРАВА — копается, превращается в грязь
+    if (tile === "grass") {
+      this.spawnDebrisEffect(px, py, 0x3a7a45, 6);
+      this.setTileVisual(tx, ty, "dirt", "tile-dirt");
+      this.cameras.main.shake(60, 0.002);
+
+      // Выдаём траву в инвентарь
+      if (!this.inventoryWithBiomes["grass"]) {
+        this.inventoryWithBiomes["grass"] = { id: "grass", type: "default", tint: undefined, scale: 1, count: 0 };
+      }
+      this.inventoryWithBiomes["grass"].count += 1;
+      this.inventory["grass"] = (this.inventory["grass"] ?? 0) + 1;
+      this.emitInventory();
+      this.showFloatingText(px, py, `+1 🌿 Трава`);
+      gameEvents.emit('block-collected', { type: "grass", amount: 1, baseId: "grass", biome: "default" });
+      gameEvents.emit('tile-broken', { tile, itemKey: "grass", x: tx, y: ty });
+>>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
       return;
     }
 
@@ -2263,6 +2286,7 @@ class MainScene extends Phaser.Scene {
       return; // лёд не даёт предмет — просто оставляет грязь
     }
 
+<<<<<<< HEAD
     // 🌲 ДЕРЕВО — ломается на доски (default) или биомный эквивалент
     if (tile === "tree") {
       const idx_t = ty * MAP_W + tx;
@@ -2327,6 +2351,27 @@ class MainScene extends Phaser.Scene {
         gameEvents.emit('block-collected', { type: "tree", amount: 1, baseId: "tree", biome: tileBiome_t });
         gameEvents.emit('tile-broken', { tile, itemKey: biomeItemId_t, x: tx, y: ty });
       }
+=======
+    // 🌲 ДЕРЕВО — ломается на доски
+    if (tile === "tree") {
+      this.spawnDebrisEffect(px, py, 0x6b4226, 12);
+      // Кладём грязь под деревом вместо травы
+      this.setTileVisual(tx, ty, "dirt", "tile-dirt");
+      this.cameras.main.shake(120, 0.005);
+
+      // Выдаём доски (2-3 штуки)
+      const boardCount = 2 + Math.floor(this.rng() * 2);
+      const baseKey: TileId = "board";
+      if (!this.inventoryWithBiomes["board"]) {
+        this.inventoryWithBiomes["board"] = { id: "board", type: "default", tint: undefined, scale: 1, count: 0 };
+      }
+      this.inventoryWithBiomes["board"].count += boardCount;
+      this.inventory[baseKey] = (this.inventory[baseKey] ?? 0) + boardCount;
+      this.emitInventory();
+      this.showFloatingText(px, py, `+${boardCount} 🪵 Досок`);
+      gameEvents.emit('block-collected', { type: "board", amount: boardCount, baseId: "board", biome: "default" });
+      gameEvents.emit('tile-broken', { tile, itemKey: "board", x: tx, y: ty });
+>>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
       return;
     }
 
@@ -2394,6 +2439,7 @@ class MainScene extends Phaser.Scene {
     }
 
     // Добавляем предмет в inventoryWithBiomes (единый источник правды)
+<<<<<<< HEAD
     // baseKey — базовый тип тайла (grass, rock, tree...), biomeItemId — полный ключ (grass_sand, rock_snow...)
     const baseKey = tile as Exclude<TileId, "empty" | "water">;
     // Используем biomeItemId как ключ инвентаря чтобы песок был "grass_sand", а не "grass"
@@ -2401,6 +2447,12 @@ class MainScene extends Phaser.Scene {
     if (!this.inventoryWithBiomes[inventoryKey]) {
       const biomeType = this.getBiomeTypeFromItemId(inventoryKey);
       this.inventoryWithBiomes[inventoryKey] = { 
+=======
+    const baseKey = tile as Exclude<TileId, "empty" | "water">;
+    if (!this.inventoryWithBiomes[biomeItemId]) {
+      const biomeType = this.getBiomeTypeFromItemId(biomeItemId);
+      this.inventoryWithBiomes[biomeItemId] = { 
+>>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
         id: baseKey, 
         type: biomeType,
         tint: undefined, 
@@ -2408,6 +2460,7 @@ class MainScene extends Phaser.Scene {
         count: 0 
       };
     }
+<<<<<<< HEAD
     this.inventoryWithBiomes[inventoryKey].count++;
     
     // Синхронизируем обычный инвентарь по biomeItemId ключу
@@ -2419,6 +2472,18 @@ class MainScene extends Phaser.Scene {
     const biomeType = this.getBiomeTypeFromItemId(inventoryKey);
     gameEvents.emit('block-collected', { 
       type: inventoryKey, 
+=======
+    this.inventoryWithBiomes[biomeItemId].count++;
+    
+    // Синхронизируем обычный инвентарь (по базовому ключу — для обратной совместимости)
+    this.inventory[baseKey] = (this.inventory[baseKey] ?? 0) + 1;
+    this.emitInventory();
+
+    // Генерируем событие для React
+    const biomeType = this.getBiomeTypeFromItemId(biomeItemId);
+    gameEvents.emit('block-collected', { 
+      type: biomeItemId, 
+>>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
       amount: 1,
       baseId: baseKey,
       biome: biomeType
@@ -3060,17 +3125,28 @@ class MainScene extends Phaser.Scene {
   private applyLavaTile(x: number, y: number, tile: TileId, sprite: Phaser.GameObjects.Image, idx: number) {
     const r = Math.random();
     if (tile === "grass") {
+<<<<<<< HEAD
       // Оставляем tile = "grass" для ходьбы, но визуально — магма/вулкан
       // biome = lava → при добыче выдаст "grass_magma" (магматическая порода)
       if (r > 0.35) {
+=======
+      if (r > 0.35) {
+        this.tiles[y][x] = "rock";
+>>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
         sprite.setTexture("tile-volcanic");
       } else {
         sprite.setTexture("tile-magma");
       }
       sprite.setData('biome', 'lava'); sprite.setData('type', 'lava');
     } else if (tile === "tree") {
+<<<<<<< HEAD
       // Дерево → уголь или магма-пол (walkable)
       if (r > 0.5) {
+=======
+      // Дерево → уголь (тёмный вулканический) или магма
+      if (r > 0.5) {
+        this.tiles[y][x] = "rock";
+>>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
         sprite.setTexture("tile-volcanic");
         sprite.setTint(0x333333);
       } else {
@@ -3090,6 +3166,7 @@ class MainScene extends Phaser.Scene {
   private applyDesertTile(x: number, y: number, tile: TileId, sprite: Phaser.GameObjects.Image, idx: number) {
     const r = Math.random();
     if (tile === "grass") {
+<<<<<<< HEAD
       // grass остаётся "grass" в tiles (проходимо), визуально — песок
       // biome=desert → при добыче даёт "grass_sand" = Песок
       sprite.setTexture("tile-sand");
@@ -3100,11 +3177,18 @@ class MainScene extends Phaser.Scene {
         sprite.setTexture("tile-cactus");
         // tree_desert → при ломании даст кактус
       }
+=======
+      sprite.setTexture("tile-sand");
+      sprite.setData('biome', 'desert'); sprite.setData('type', 'desert');
+>>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
     } else if (tile === "tree") {
       // Дерево → кактус (60%) или песок (40%)
       if (r > 0.4) {
         sprite.setTexture("tile-cactus");
+<<<<<<< HEAD
         // tile остаётся "tree" → при добыче: tree + biome=desert → "tree_sand" = Кактус
+=======
+>>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
       } else {
         this.tiles[y][x] = "grass";
         sprite.setTexture("tile-sand");
@@ -3122,6 +3206,14 @@ class MainScene extends Phaser.Scene {
       }
       sprite.setData('biome', 'desert'); sprite.setData('type', 'desert');
     }
+<<<<<<< HEAD
+=======
+    // Рассыпаем доп. кактусы
+    if (tile === "grass" && r > 0.88) {
+      this.tiles[y][x] = "tree";
+      sprite.setTexture("tile-cactus");
+    }
+>>>>>>> b68369ca310951aa4862415938f1c2680dc434bf
   }
 
   private applySnowTile(x: number, y: number, tile: TileId, sprite: Phaser.GameObjects.Image, idx: number) {
